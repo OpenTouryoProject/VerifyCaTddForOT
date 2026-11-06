@@ -39,3 +39,36 @@
 
 ## 範囲外
 `EV-ORD-103`〜`108`、ページ 2 以降、並べ替え列の切替、`OrdTfInit`（選択肢の構築）。
+
+# 続き（2 回目）：選択肢の構築（`OrdTfInit`）
+
+仕様：`docs/spec/test6-testfirst.md`「続き：選択肢の構築」、テスト仕様：`docs/spec/test6-testfirst-mvc-core-tests.md` の 5 節（NorthwindDbSampleSpec@fe574ce）。上の「範囲外」の `OrdTfInit` を、この回で作る。
+
+## 使用スキル
+1 回目と同じ（`opentouryo-layer-b`・`opentouryo-dao-common`・`opentouryo-p-call-business`・`opentouryo-layer-p-mvc`・`opentouryo-comment-convention`）。
+
+## 対象ファイル
+| 層 | ファイル | 内容 |
+| --- | --- | --- |
+| B層 | `Logic/Business/OrdTfBusiness.cs` | `UOC_OrdTfInit`：顧客・担当者の選択肢を CmnDao で取得（空の実装を置き換える） |
+| 戻り値 | `Logic/Common/OrdTfReturnValue.cs` | `CustomerOptions`・`EmployeeOptions`（段 2 で追加済み。変更なし） |
+| P層 | `Controllers/OrdTfController.cs` | `Index`・`Search` で `OrdTfInit` を呼び、ビューモデルへ設定する |
+| P層 | `Models/ViewModels/OrdTfViewModel.cs` | 選択肢（`SelectListItem`）。**先頭の空白（＝すべて）はここで置く** |
+| P層 | `Views/OrdTf/Index.cshtml` | `I01`・`I02` をテキスト ボックスからドロップダウンへ |
+
+テスト（`MVC_Sample.Tests/`）と、1 回目の `UOC_OrdTfSearch` は編集しない。
+
+## B層
+- 顧客：`SELECT RTRIM(CustomerID) AS Value, CompanyName AS Text FROM Customers ORDER BY CompanyName`。
+- 担当者：`SELECT CAST(EmployeeID AS nvarchar(20)) AS Value, LastName + N' ' + FirstName AS Text FROM Employees ORDER BY LastName, FirstName`（EMP-T1）。
+- 引数なし・固定の SQL（`SetParameter` は不要）。空白の選択肢は置かない（画面）。
+
+## 画面
+- ページ読み込み（`EV-ORD-101`）：`Index` が `OrdTfInit` を呼んでから、1 回目の `OrdTfSearch`（条件なし）を呼ぶ。
+- 検索（`EV-ORD-102`）の応答でもドロップダウンを出し直すため、`Search`（エラー時を含む）でも `OrdTfInit` を呼び、選択を保つ。
+- 先頭の空白：`Value` が空文字・`Text` が空文字の選択肢をビューモデル側で先頭に置く。担当者の空文字は、モデル バインドで `int?` の null になる（テスト仕様 5.2 の 5）。
+- 出荷状況（`I05`）は固定値のまま（1 回目の `ShipStatusItems`）。B層のテスト対象外（5.2 の 2）。
+- B層呼び出しは直呼びの `DoBusinessLogicAsync`（`ReadCommitted`）。
+
+## 範囲外
+配送業者・商品の選択肢、一覧状態の復元（`EV-ORD-101` 手順 3）。

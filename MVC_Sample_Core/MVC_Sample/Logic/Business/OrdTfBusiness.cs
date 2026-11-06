@@ -16,6 +16,7 @@
 //*  2026/11/06  Claude Code       段 4：UOC_OrdTfSearch を実装（EV-ORD-101・102）
 //*  2026/11/06  Claude Code       メッセージ ID のコメントを決定に合わせた（NorthwindDbSampleSpec@fe574ce）
 //*  2026/11/07  Claude Code       2 回目 段 2：戻り値を設定するだけの空の UOC_OrdTfInit を追加
+//*  2026/11/07  Claude Code       2 回目 段 4：UOC_OrdTfInit を実装（EV-ORD-101 手順 1）
 //**********************************************************************************
 
 using System;
@@ -159,9 +160,20 @@ namespace MVC_Sample.Logic.Business
 
             // ↓業務処理-----------------------------------------------------
 
-            // 段 2（Red）：戻り値を設定するだけ。実装は段 4。
+            // 顧客：会社名の昇順（先頭の空白の選択肢は画面が置く）
+            CmnDao customerDao = new CmnDao(this.GetDam());
+            customerDao.SQLText =
+                "SELECT RTRIM(CustomerID) AS Value, CompanyName AS Text FROM Customers ORDER BY CompanyName";
             rv.CustomerOptions = CreateEmptyOptions();
+            customerDao.ExecSelectFill_DT(rv.CustomerOptions);
+
+            // 担当者：姓・名の昇順。表示は「姓 + 半角空白 + 名」（EMP-T1）
+            CmnDao employeeDao = new CmnDao(this.GetDam());
+            employeeDao.SQLText =
+                "SELECT CAST(EmployeeID AS nvarchar(20)) AS Value, LastName + N' ' + FirstName AS Text" +
+                " FROM Employees ORDER BY LastName, FirstName";
             rv.EmployeeOptions = CreateEmptyOptions();
+            employeeDao.ExecSelectFill_DT(rv.EmployeeOptions);
 
             // ↑業務処理-----------------------------------------------------
         }

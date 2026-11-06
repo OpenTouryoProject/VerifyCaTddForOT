@@ -13,6 +13,7 @@
 //*  日時        更新者            内容
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/06  Claude Code       新規作成（EV-ORD-101・EV-ORD-102）
+//*  2026/11/07  Claude Code       選択肢の構築（OrdTfInit）を呼ぶ
 //**********************************************************************************
 
 using System;
@@ -22,6 +23,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 
 using MVC_Sample.Logic.Business;
 using MVC_Sample.Logic.Common;
@@ -41,7 +43,8 @@ namespace MVC_Sample.Controllers
         public async Task<IActionResult> Index()
         {
             OrdTfViewModel model = new OrdTfViewModel();
-            await this.SearchCore(model);
+            await this.InitCore(model); // 手順 1・2：選択肢の構築
+            await this.SearchCore(model); // 手順 4〜：既定条件の一覧
             return View(model);
         }
 
@@ -50,6 +53,8 @@ namespace MVC_Sample.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Search(OrdTfViewModel model)
         {
+            await this.InitCore(model); // 応答でもドロップダウンを出し直す
+
             // 日付として解釈できない入力は、モデル バインドで弾く（VAL-DATE の前半。B層には届かない）
             if (!ModelState.IsValid)
             {
@@ -62,6 +67,35 @@ namespace MVC_Sample.Controllers
 
             await this.SearchCore(model);
             return View("Index", model);
+        }
+
+        /// <summary>選択肢の構築（OrdTfInit）：顧客・担当者。先頭に空白の選択肢（＝すべて）を置く</summary>
+        private async Task InitCore(OrdTfViewModel model)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(
+                this.ControllerName, "-", "OrdTfInit", "SQL", this.UserInfo);
+
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness()
+                .DoBusinessLogicAsync(pv, DbEnum.IsolationLevelEnum.ReadCommitted);
+
+            model.CustomerItems = ToItems(rv.CustomerOptions, model.CustomerID);
+            model.EmployeeItems = ToItems(rv.EmployeeOptions,
+                model.EmployeeID.HasValue ? model.EmployeeID.Value.ToString() : null);
+        }
+
+        /// <summary>DataTable（Value・Text）→ 選択肢。先頭に空白（Value が空文字）を置く</summary>
+        private static System.Collections.Generic.List<SelectListItem> ToItems(DataTable options, string selected)
+        {
+            var items = new System.Collections.Generic.List<SelectListItem>
+            {
+                new SelectListItem { Value = "", Text = "" }
+            };
+            foreach (DataRow r in options.Rows)
+            {
+                string value = Text(r["Value"]);
+                items.Add(new SelectListItem { Value = value, Text = Text(r["Text"]), Selected = value == selected });
+            }
+            return items;
         }
 
         /// <summary>B層を呼んで、結果をビューモデルへ設定する</summary>

@@ -13,10 +13,13 @@
 //*  日時        更新者            内容
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/06  Claude Code       新規作成
+//*  2026/11/07  Claude Code       顧客・担当者の選択肢を追加（EV-ORD-101 手順 1）
 //**********************************************************************************
 
 using System;
 using System.Collections.Generic;
+
+using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace MVC_Sample.Models.ViewModels
 {
@@ -54,6 +57,12 @@ namespace MVC_Sample.Models.ViewModels
 
         /// <summary>出荷状況の選択肢（固定値）</summary>
         public static readonly string[] ShipStatusItems = { "すべて", "未出荷", "出荷済", "納期遅延" };
+
+        /// <summary>顧客の選択肢（SC-ORD-01-I01）。先頭は空白（＝すべて）</summary>
+        public List<SelectListItem> CustomerItems { get; set; } = new List<SelectListItem>();
+
+        /// <summary>担当者の選択肢（SC-ORD-01-I02）。先頭は空白（＝すべて）</summary>
+        public List<SelectListItem> EmployeeItems { get; set; } = new List<SelectListItem>();
 
         /// <summary>受注一覧（SC-ORD-01-I06）</summary>
         public List<OrdTfRowViewModel> Rows { get; set; } = new List<OrdTfRowViewModel>();

@@ -14,6 +14,7 @@
     //*  日時        更新者            内容
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/06  Claude Code       新規作成（EV-ORD-101・EV-ORD-102 の範囲）
+    //*  2026/11/07  Claude Code       顧客・担当者をドロップダウンにした（選択肢の構築）
     //**********************************************************************************
 *@
 
@@ -37,14 +38,14 @@
     <div class="row">
         <div class="col-3">
             <div class="form-group">
-                <label for="CustomerID">顧客 ID</label>
-                @Html.TextBoxFor(m => m.CustomerID, new { @class = "form-control", maxlength = 5 })
+                <label for="CustomerID">顧客</label>
+                @Html.DropDownListFor(m => m.CustomerID, Model.CustomerItems, new { @class = "form-control" })
             </div>
         </div>
         <div class="col-3">
             <div class="form-group">
-                <label for="EmployeeID">担当者 ID</label>
-                @Html.TextBoxFor(m => m.EmployeeID, new { @class = "form-control" })
+                <label for="EmployeeID">担当者</label>
+                @Html.DropDownListFor(m => m.EmployeeID, Model.EmployeeItems, new { @class = "form-control" })
             </div>
         </div>
         <div class="col-2">
