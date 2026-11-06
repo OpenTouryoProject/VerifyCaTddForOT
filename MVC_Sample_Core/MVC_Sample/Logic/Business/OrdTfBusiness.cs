@@ -14,6 +14,7 @@
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/06  Claude Code       新規作成（段 2：戻り値を設定するだけの空の UOC）
 //*  2026/11/06  Claude Code       段 4：UOC_OrdTfSearch を実装（EV-ORD-101・102）
+//*  2026/11/06  Claude Code       メッセージ ID のコメントを決定に合わせた（NorthwindDbSampleSpec@fe574ce）
 //**********************************************************************************
 
 using System;
@@ -55,7 +56,7 @@ namespace MVC_Sample.Logic.Business
             if (pv.OrderDateFrom.HasValue && pv.OrderDateTo.HasValue
                 && pv.OrderDateFrom.Value.Date > pv.OrderDateTo.Value.Date)
             {
-                // メッセージ ID は仮（未決。docs/spec/test6-testfirst-mvc-core-tests.md 質問 1）
+                // メッセージは文言で定まる。メッセージ ID は実装で決める（HLD/Common.md 7 節）
                 throw new BusinessApplicationException(
                     "ORD_VAL_DATE", "受注日の開始は終了以前を指定してください。", "");
             }
