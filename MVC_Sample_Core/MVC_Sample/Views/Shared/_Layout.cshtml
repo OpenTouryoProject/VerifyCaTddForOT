@@ -76,6 +76,9 @@
                         @if (User.Identity.IsAuthenticated)
                         {
                             @* 各メニューは、ユーザーが認証されている時だけ表示する *@
+                            <li onclick="window.location.href = '@Url.Action("Index", "OrdTf")';">
+                                <i class="fa fa-arrow-circle-right"></i> 受注一覧
+                            </li>
                             <li onclick="window.location.href = '@Url.Content("~/")';">
                                 <i class="fa fa-arrow-circle-right"></i> メニュー１
                             </li>
@@ -88,6 +91,8 @@
             </div>
             <div id="contents" class="col-sm-8 col-md-9">
                 @RenderBody()
+                @* コンテンツのフッタ部：メインボタン 5 つ（<form> の外。submit には form="フォームID" を付ける） *@
+                @RenderSection("FooterButtonsSection", required: false)
             </div>
         </div>
     </div>

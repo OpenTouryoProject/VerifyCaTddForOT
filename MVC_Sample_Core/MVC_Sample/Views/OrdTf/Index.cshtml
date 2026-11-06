@@ -1,0 +1,126 @@
+﻿@*
+    //**********************************************************************************
+    //* 受注一覧（テスト先行）・ビュー
+    //**********************************************************************************
+
+    //**********************************************************************************
+    //* クラス名        ：Index
+    //* クラス日本語名  ：受注一覧画面（SC-ORD-01）
+    //*
+    //* 作成日時        ：2026/11/06
+    //* 作成者          ：Claude Code
+    //* 更新履歴        ：
+    //*
+    //*  日時        更新者            内容
+    //*  ----------  ----------------  -------------------------------------------------
+    //*  2026/11/06  Claude Code       新規作成（EV-ORD-101・EV-ORD-102 の範囲）
+    //**********************************************************************************
+*@
+
+@using MVC_Sample.Models.ViewModels
+@model OrdTfViewModel
+
+@{
+    ViewBag.Title = "受注一覧";
+}
+
+@section HeaderScriptsSection{
+    <!-- Head 部の section -->
+}
+
+<h4>受注一覧（SC-ORD-01）</h4>
+
+@using (Html.BeginForm("Search", "OrdTf", FormMethod.Post, new { id = "formOrdTf", onsubmit = "Fx_OnSubmit();" }))
+{
+    @Html.AntiForgeryToken()
+
+    <div class="row">
+        <div class="col-3">
+            <div class="form-group">
+                <label for="CustomerID">顧客 ID</label>
+                @Html.TextBoxFor(m => m.CustomerID, new { @class = "form-control", maxlength = 5 })
+            </div>
+        </div>
+        <div class="col-3">
+            <div class="form-group">
+                <label for="EmployeeID">担当者 ID</label>
+                @Html.TextBoxFor(m => m.EmployeeID, new { @class = "form-control" })
+            </div>
+        </div>
+        <div class="col-2">
+            <div class="form-group">
+                <label for="OrderDateFrom">受注日（開始）</label>
+                @Html.TextBoxFor(m => m.OrderDateFrom, "{0:yyyy/MM/dd}", new { @class = "form-control", placeholder = "yyyy/MM/dd" })
+            </div>
+        </div>
+        <div class="col-2">
+            <div class="form-group">
+                <label for="OrderDateTo">受注日（終了）</label>
+                @Html.TextBoxFor(m => m.OrderDateTo, "{0:yyyy/MM/dd}", new { @class = "form-control", placeholder = "yyyy/MM/dd" })
+            </div>
+        </div>
+        <div class="col-2">
+            <div class="form-group">
+                <label for="ShipStatus">出荷状況</label>
+                @Html.DropDownListFor(m => m.ShipStatus,
+                    new SelectList(OrdTfViewModel.ShipStatusItems, Model.ShipStatus), new { @class = "form-control" })
+            </div>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.Message))
+{
+    <div id="message" class="@(Model.IsError ? "alert alert-danger" : "alert alert-info")">@Model.Message</div>
+}
+
+<div class="row">
+    <div class="col-6"><span id="totalCount">全 @Model.TotalCount 件</span></div>
+    <div class="col-6 text-right"><span id="pageInfo">@Model.PageNo / @Model.PageCount ページ</span></div>
+</div>
+
+<table class="table table-sm table-bordered" id="orderList">
+    <thead>
+        <tr>
+            <th>受注 ID</th>
+            <th>顧客名</th>
+            <th>担当者名</th>
+            <th>受注日</th>
+            <th>要求納期</th>
+            <th>出荷日</th>
+            <th>配送業者</th>
+            <th class="text-right">合計金額</th>
+            <th>状況</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var r in Model.Rows)
+        {
+            <tr class="@(r.Status == "納期遅延" ? "table-danger font-weight-bold" : "")">
+                <td>@r.OrderID</td>
+                <td>@r.CustomerName</td>
+                <td>@r.EmployeeName</td>
+                <td>@r.OrderDate</td>
+                <td>@r.RequiredDate</td>
+                <td>@r.ShippedDate</td>
+                <td>@r.ShipperName</td>
+                <td class="text-right">@r.TotalAmount</td>
+                <td>@r.Status</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@* コンテンツのフッタ部：メインボタン 5 つ。この画面で使うのは「検索」だけ（EV-ORD-102）。他は非活性 *@
+@section FooterButtonsSection{
+    <div id="footerButtons" class="mt-3">
+        <button type="submit" id="btnMain1" class="btn btn-primary" form="formOrdTf">検索</button>
+        <button type="button" id="btnMain2" class="btn btn-secondary" disabled>-</button>
+        <button type="button" id="btnMain3" class="btn btn-secondary" disabled>-</button>
+        <button type="button" id="btnMain4" class="btn btn-secondary" disabled>-</button>
+        <button type="button" id="btnMain5" class="btn btn-secondary" disabled>-</button>
+    </div>
+}
+
+@section FooterScriptsSection{
+}
