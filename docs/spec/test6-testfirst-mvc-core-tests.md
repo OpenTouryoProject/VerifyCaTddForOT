@@ -3,6 +3,7 @@
 段 1（`TESTING.md`）の成果物。
 
 - 起こした仕様の版：**NorthwindDbSampleSpec@fe574ce**（初版は @6545f92。@fe574ce への追随は「3.2」）
+- 2 回目（選択肢の構築・`OrdTfInit`）：起こした仕様の版も **NorthwindDbSampleSpec@fe574ce**（2 回目に読んだ版。1 回目の版〔@6545f92 → @fe574ce〕は上に残す）。節は「5」
 - レビュー反映済み（2026-11-06）。人に返した事項への回答は「3.1」に記録した。
 
 - 対象：`OrdTfBusiness` の `MethodName` = `OrdTfSearch`（`UOC_OrdTfSearch`）。`DoBusinessLogic` の境界でテストする
@@ -149,3 +150,59 @@
 顧客が NULL の受注（`SC-ORD-01-I06` 列 2）は、テストのデータを顧客で区切れないため作らない。
 
 `EV-ORD-103`（条件クリア）〜 `EV-ORD-108`（ページ切替・並べ替え・各遷移・出荷更新）。ページ 2 以降の取得、並べ替え列の切替は含めない（`test6-testfirst.md`）。
+
+## 5. 続き（2 回目）：選択肢の構築（`OrdTfInit`）
+
+段 1（`TESTING.md`）の成果物。**承認済み（2026-11-07、人が直して承認。決着は 5.2）**。1 回目のケース（2.1〜2.3）は変えない。
+
+- 起こした仕様の版：**NorthwindDbSampleSpec@fe574ce**（`test6-testfirst.md` の「続き：選択肢の構築」）
+- 対象：`OrdTfBusiness` の `MethodName` = `OrdTfInit`（`UOC_OrdTfInit`）。クラスは 1 回目と同じ `OrdTfBusinessTests` に足す（`[Basis]` 付き）
+- 仕様の出どころ：
+  - `LLD/EventSpec/Orders.md`：`EV-ORD-101` 手順 1・2、「共通の処理」の **選択肢の構築**
+  - `LLD/UI_ElementsAndEventList/Orders.md`：`SC-ORD-01-I01`（顧客）・`I02`（担当者）・`I05`（出荷状況）
+  - `LLD/TableSchema/Employees.md`：`EMP-T1`（社員名は「`LastName` + 半角空白 + `FirstName`」）
+
+### 5.0 前提と入出力（B層の境界）— 承認を受ける
+
+`OrdTfInit` は**引数を取らない**（選択肢の構築に入力は無い。`OrdTfParameterValue` の項目は足さない）。
+`EV-ORD-101` の既定条件の検索は、画面が `OrdTfInit` の後に `OrdTfSearch` を条件なしで呼ぶ（3.1 の 8 で承認済み）。`OrdTfInit` は検索しない。
+
+| 戻り値クラス `OrdTfReturnValue` に足す項目 | 対応する画面項目 | 備考（案） |
+| --- | --- | --- |
+| `CustomerOptions`（`DataTable`） | `SC-ORD-01-I01` | 列：`Value`（`CustomerID`）・`Text`（`CompanyName`） |
+| `EmployeeOptions`（`DataTable`） | `SC-ORD-01-I02` | 列：`Value`（`EmployeeID`）・`Text`（`LastName + " " + FirstName`） |
+
+- 型は `DataTable`（B層に MVC の `SelectListItem` を持ち込まない。1 回目の `Rows` と同じ）。`Value` は文字列、`Text` は文字列。
+- **B層は DB の行だけを返す。先頭の空白の選択肢（＝すべて）は画面が置く**（5.2 の 1）。
+- `actionType` = `SQL`、`MyUserInfo("test", "127.0.0.1")`、分離レベル = `User`（1 回目と同じ）。
+- テストデータ：1 回目の顧客 A・B（`[SetUp]` で作る）の会社名を指定して並びの確認に使う。担当者は、既存行に加えて**テスト用の担当者 2 件**（姓が同じ・名の順が ID の順と逆）を `[SetUp]` で入れ、`[TearDown]` で消す（`IDENTITY` は `SCOPE_IDENTITY()` で受ける）。
+
+### 5.1 テストケース
+
+期待の「全体の並び」は、**テストの中で `ORDER BY` を指定した別の SELECT で取り直した結果**と比べる（仕様は「`CompanyName` 昇順」「`LastName`・`FirstName` 昇順」。並べ替えの規則は DB の照合順序に従うため、C# 側で並べ直さない）。
+ただし、それだけでは確かめられない並びがあるため、**会社名・姓名の順序が既知のテスト用の行**の前後関係も確かめる。
+
+- 顧客：A の会社名 = `"TestCo-B-" + A`、B の会社名 = `"TestCo-A-" + B`（ID の順と会社名の順を逆にしておく）。
+- 担当者：テスト用に 2 件入れる。姓は同じ（`"Zz" + ランダムな英大文字 4 桁`。`LastName` は `nvarchar(20)`）、名は **先に入れる方を `"B"`、後に入れる方を `"A"`**（`FirstName` は `nvarchar(10)`）。Northwind の既存の担当者に同じ姓が無いため、既存の行だけでは「姓が同じなら名で並ぶ」を確かめられない（`ORDER BY LastName` だけの実装でも通る）。
+
+| ケース | 根拠 | 前提 | 入力 | 期待 |
+| --- | --- | --- | --- | --- |
+| OrdTfInit_顧客の選択肢は会社名の昇順 | EV-ORD-101 手順 1, 選択肢の構築, SC-ORD-01-I01 | 顧客 A・B（上記の会社名） | （なし） | ErrorFlag = false。`CustomerOptions` が、`Customers` を `CompanyName` 昇順に取り直した並びと一致する。かつ、B の行が A の行より前にある |
+| OrdTfInit_顧客の値と表示 | SC-ORD-01-I01（`CustomerID` / `CompanyName`） | 顧客 A（会社名 X） | （なし） | A の行は `Value` = A の `CustomerID`、`Text` = X |
+| OrdTfInit_顧客の選択肢の件数 | 選択肢の構築（`Customers` を取得する） | — | （なし） | `CustomerOptions` の行数 = `Customers` の件数 |
+| OrdTfInit_担当者の選択肢は姓名の昇順 | EV-ORD-101 手順 1, 選択肢の構築, SC-ORD-01-I02 | 既存の担当者に (`LastName`, `FirstName`) の重複が無い（**あれば前提が崩れているので失敗させる**）。テスト用の担当者 2 件（上記。名 `"B"` を先に、`"A"` を後に入れる） | （なし） | ErrorFlag = false。`EmployeeOptions` が、`Employees` を `LastName`・`FirstName` 昇順に取り直した並びと一致する。かつ、名 `"A"` の行が名 `"B"` の行より前にある |
+| OrdTfInit_担当者の値と表示 | SC-ORD-01-I02, EMP-T1 | テスト用の担当者 1 件（姓 = `"Zz" + ランダム`、名 = `"Taro"`） | （なし） | その担当者の行は `Value` = その `EmployeeID` の文字列、`Text` = C# の文字列 `姓 + " " + 名`（SQL の式で期待を作らない。EMP-T1 を独立に確かめる） |
+| OrdTfInit_担当者の選択肢の件数 | 選択肢の構築（`Employees` を取得する） | — | （なし） | `EmployeeOptions` の行数 = `Employees` の件数 |
+
+### 5.2 回答と決着（2026-11-07、人）
+
+1. **先頭の空白は画面で置く。** B層は DB の行だけを返す。空白は共通の処理「選択肢の構築」には無く、画面の項目ごとに決まる（`SC-ORD-01-I01`・`I02`・`SC-ORD-03-I08` は空白あり、`SC-ORD-04-I06` は空白なし）。
+   → 「先頭は空白の選択肢」の 2 ケースを消し、件数の「+ 1」と、並びの比較の「先頭の空白を除いた」を外した。空白は段 4 の画面の確認で見る。
+2. 出荷状況（`I05`）の固定値は、B層のテストの対象にしない。画面側の定数にする。
+3. 型は `DataTable`（`Value`・`Text`）。
+4. 取り直した順と比べる方式。ただし、担当者のテスト用 2 件を足す（5.1。「姓が同じなら名で並ぶ」を確かめるため）。同姓同名が既存に無いことを、並びの比較の前に確かめる。
+5. 担当者の `Value` は `EmployeeID` の文字列。画面で空文字を null にする。
+6. `ERR-DB`：ケースを作らない。
+7. 範囲外：配送業者・商品の選択肢。`EV-ORD-101` 手順 3（一覧状態の復元）は画面の仕事。
+9. 「担当者の値と表示」の期待を、SQL の式（実装と同じ式になる）でなく、テスト用の担当者 1 件の C# の文字列 `姓 + " " + 名` と比べる形にした（2026-11-07、人の指摘）。
+8. 「顧客の値と表示」の根拠から `CUS-T3` を外し、期待は `Value` = A の `CustomerID` だけにした（`VAL-CODE` により 5 桁で末尾空白が起こらず、「末尾空白なし」はどの実装でも通るため）。

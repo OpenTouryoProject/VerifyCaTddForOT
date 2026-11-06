@@ -15,12 +15,13 @@ using Touryo.Infrastructure.Public.Util;
 namespace MVC_Sample.Tests
 {
     /// <summary>
-    /// OrdTfBusiness.OrdTfSearch の単体テスト。
+    /// OrdTfBusiness.OrdTfSearch・OrdTfInit の単体テスト。
     /// 仕様：docs/spec/test6-testfirst-mvc-core-tests.md（NorthwindDbSampleSpec@fe574ce）
     /// </summary>
     public class OrdTfBusinessTests
     {
         private const string Method = "OrdTfSearch";
+        private const string MethodInit = "OrdTfInit";
 
         private static readonly Random Rnd = new Random();
 
@@ -29,6 +30,9 @@ namespace MVC_Sample.Tests
         private string custB;
 
         private readonly DateTime today = DateTime.Today;
+
+        /// <summary>OrdTfInit のテストが入れた担当者（TearDown で消す）</summary>
+        private readonly List<int> testEmployees = new List<int>();
 
         #region 前処理・後処理
 
@@ -55,6 +59,12 @@ namespace MVC_Sample.Tests
         [TearDown]
         public void TearDown()
         {
+            foreach (int e in testEmployees)
+            {
+                Exec("DELETE FROM Employees WHERE EmployeeID = @e", P("@e", e));
+            }
+            testEmployees.Clear();
+
             // 失敗したテストの後でも消える。テストが作った顧客の受注だけを消す。
             foreach (string c in new[] { custA, custB })
             {
@@ -472,7 +482,131 @@ namespace MVC_Sample.Tests
 
         #endregion
 
+        #region 5 OrdTfInit：選択肢の構築（EV-ORD-101 手順 1）
+
+        [Test, Basis("EV-ORD-101"), Basis("選択肢の構築"), Basis("SC-ORD-01-I01")]
+        public void OrdTfInit_顧客の選択肢は会社名の昇順()
+        {
+            // ID の順と会社名の順を逆にしておく（A の会社名が B の会社名より後）
+            Exec("UPDATE Customers SET CompanyName = @n WHERE CustomerID = @c", P("@n", "TestCo-B-" + custA), P("@c", custA));
+            Exec("UPDATE Customers SET CompanyName = @n WHERE CustomerID = @c", P("@n", "TestCo-A-" + custB), P("@c", custB));
+
+            var rv = Init();
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            var expected = Column("SELECT CustomerID FROM Customers ORDER BY CompanyName");
+            Assert.That(Values(rv.CustomerOptions), Is.EqualTo(expected));
+            var values = Values(rv.CustomerOptions);
+            Assert.That(values.IndexOf(custB), Is.GreaterThanOrEqualTo(0));
+            Assert.That(values.IndexOf(custB), Is.LessThan(values.IndexOf(custA)));
+        }
+
+        [Test, Basis("SC-ORD-01-I01")]
+        public void OrdTfInit_顧客の値と表示()
+        {
+            var rv = Init();
+
+            var row = rv.CustomerOptions.Rows.Cast<DataRow>().FirstOrDefault(r => Text(r["Value"]) == custA);
+            Assert.That(row, Is.Not.Null, "顧客 A の行が選択肢に無い");
+            Assert.That(Text(row["Text"]), Is.EqualTo("TestCo-" + custA));
+        }
+
+        [Test, Basis("選択肢の構築")]
+        public void OrdTfInit_顧客の選択肢の件数()
+        {
+            var rv = Init();
+
+            Assert.That(rv.CustomerOptions.Rows.Count, Is.EqualTo(Scalar("SELECT COUNT(*) FROM Customers")));
+        }
+
+        [Test, Basis("EV-ORD-101"), Basis("選択肢の構築"), Basis("SC-ORD-01-I02")]
+        public void OrdTfInit_担当者の選択肢は姓名の昇順()
+        {
+            // 前提：既存の担当者に (LastName, FirstName) の重複が無いこと（あると並びが確定しない）
+            Assert.That(Scalar("SELECT COUNT(*) FROM (SELECT LastName, FirstName FROM Employees GROUP BY LastName, FirstName HAVING COUNT(*) > 1) d"),
+                Is.EqualTo(0), "前提：Employees に (LastName, FirstName) が同じ行が無いこと");
+
+            // 姓が同じで、名の順が ID の順と逆（先に入れる方が "B"、後が "A"）
+            string last = RandomEmployeeLastName();
+            int idB = AddEmployee(last, "B");
+            int idA = AddEmployee(last, "A");
+
+            var rv = Init();
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            var expected = Column("SELECT CAST(EmployeeID AS nvarchar(20)) FROM Employees ORDER BY LastName, FirstName");
+            Assert.That(Values(rv.EmployeeOptions), Is.EqualTo(expected));
+            var values = Values(rv.EmployeeOptions);
+            Assert.That(values.IndexOf(idA.ToString()), Is.GreaterThanOrEqualTo(0));
+            Assert.That(values.IndexOf(idA.ToString()), Is.LessThan(values.IndexOf(idB.ToString())));
+        }
+
+        [Test, Basis("SC-ORD-01-I02"), Basis("EMP-T1")]
+        public void OrdTfInit_担当者の値と表示()
+        {
+            // 期待は C# の文字列で作る（SQL の式は実装と同じになり、EMP-T1 を独立に確かめられない）
+            string last = RandomEmployeeLastName();
+            int id = AddEmployee(last, "Taro");
+
+            var rv = Init();
+
+            var row = rv.EmployeeOptions.Rows.Cast<DataRow>().FirstOrDefault(r => Text(r["Value"]) == id.ToString());
+            Assert.That(row, Is.Not.Null, "テスト用の担当者の行が選択肢に無い");
+            Assert.That(Text(row["Text"]), Is.EqualTo(last + " " + "Taro"));
+        }
+
+        [Test, Basis("選択肢の構築")]
+        public void OrdTfInit_担当者の選択肢の件数()
+        {
+            var rv = Init();
+
+            Assert.That(rv.EmployeeOptions.Rows.Count, Is.EqualTo(Scalar("SELECT COUNT(*) FROM Employees")));
+        }
+
+        #endregion
+
         #region ヘルパ
+
+        /// <summary>OrdTfInit を DoBusinessLogic の境界で呼ぶ（入力なし）</summary>
+        private static OrdTfReturnValue Init()
+        {
+            var pv = new OrdTfParameterValue("OrdTfBusinessTests", "-", MethodInit, "SQL", new MyUserInfo("test", "127.0.0.1"));
+            return (OrdTfReturnValue)new OrdTfBusiness().DoBusinessLogic(pv, DbEnum.IsolationLevelEnum.User);
+        }
+
+        private static List<string> Values(DataTable options)
+        {
+            return options.Rows.Cast<DataRow>().Select(r => Text(r["Value"]).Trim()).ToList();
+        }
+
+        /// <summary>1 列の SELECT の結果（並びは SELECT の ORDER BY のまま）</summary>
+        private static List<string> Column(string sql)
+        {
+            var list = new List<string>();
+            using (var cn = Open())
+            using (var cmd = new SqlCommand(sql, cn))
+            using (var rd = cmd.ExecuteReader())
+            {
+                while (rd.Read()) list.Add(Text(rd[0]).Trim());
+            }
+            return list;
+        }
+
+        /// <summary>テスト用の姓（"Zz" + 英大文字 4 桁。LastName は nvarchar(20)）</summary>
+        private static string RandomEmployeeLastName()
+        {
+            return "Zz" + new string(Enumerable.Range(0, 4).Select(_ => (char)('A' + Rnd.Next(26))).ToArray());
+        }
+
+        /// <summary>担当者を入れて EmployeeID を返す（TearDown で消す）</summary>
+        private int AddEmployee(string lastName, string firstName)
+        {
+            int id = Convert.ToInt32(ScalarObj(
+                "INSERT INTO Employees (LastName, FirstName) VALUES (@l, @f); SELECT CAST(SCOPE_IDENTITY() AS int)",
+                P("@l", lastName), P("@f", firstName)));
+            testEmployees.Add(id);
+            return id;
+        }
 
         /// <summary>DoBusinessLogic の境界で呼ぶ（UOC_ は直接呼ばない）</summary>
         private static OrdTfReturnValue Search(Action<OrdTfParameterValue> fill)

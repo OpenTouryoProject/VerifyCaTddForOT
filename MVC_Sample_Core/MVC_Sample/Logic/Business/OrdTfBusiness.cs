@@ -15,6 +15,7 @@
 //*  2026/11/06  Claude Code       新規作成（段 2：戻り値を設定するだけの空の UOC）
 //*  2026/11/06  Claude Code       段 4：UOC_OrdTfSearch を実装（EV-ORD-101・102）
 //*  2026/11/06  Claude Code       メッセージ ID のコメントを決定に合わせた（NorthwindDbSampleSpec@fe574ce）
+//*  2026/11/07  Claude Code       2 回目 段 2：戻り値を設定するだけの空の UOC_OrdTfInit を追加
 //**********************************************************************************
 
 using System;
@@ -148,9 +149,35 @@ namespace MVC_Sample.Logic.Business
             // ↑業務処理-----------------------------------------------------
         }
 
+        /// <summary>選択肢の構築（EV-ORD-101 手順 1：顧客・担当者）</summary>
+        /// <param name="pv">引数クラス（入力なし）</param>
+        private void UOC_OrdTfInit(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+
+            // 段 2（Red）：戻り値を設定するだけ。実装は段 4。
+            rv.CustomerOptions = CreateEmptyOptions();
+            rv.EmployeeOptions = CreateEmptyOptions();
+
+            // ↑業務処理-----------------------------------------------------
+        }
+
         #endregion
 
         #region 部品
+
+        /// <summary>列（Value・Text）だけを持つ空の選択肢</summary>
+        private static DataTable CreateEmptyOptions()
+        {
+            DataTable dt = new DataTable();
+            dt.Columns.Add("Value", typeof(string));
+            dt.Columns.Add("Text", typeof(string));
+            return dt;
+        }
 
         /// <summary>状況の判定（HLD 共通の処理・ORD-T7）</summary>
         private static string JudgeStatus(object requiredDate, object shippedDate, DateTime today)
