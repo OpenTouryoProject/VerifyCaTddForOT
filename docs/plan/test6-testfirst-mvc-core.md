@@ -1,6 +1,6 @@
 # 計画：受注一覧の検索（MVC_Sample_Core / net10.0）
 
-仕様：`docs/spec/test6-testfirst.md`、テスト仕様：`docs/spec/test6-testfirst-mvc-core-tests.md`（NorthwindDbSampleSpec@6545f92）。
+仕様：`docs/spec/test6-testfirst.md`、テスト仕様：`docs/spec/test6-testfirst-mvc-core-tests.md`（NorthwindDbSampleSpec@fe574ce）。
 段 3（計画）。段 4 はこの計画に沿って実施した。
 
 ## 使用スキル
@@ -22,11 +22,11 @@
 - 総件数：`SELECT COUNT(*) FROM Orders o WHERE 1 = 1 <条件>`。
 - 一覧：`Orders` を主表に `Customers`・`Employees`・`Shippers` を LEFT JOIN。`ORDER BY OrderDate DESC, OrderID DESC` ＋ `OFFSET … FETCH NEXT 20`。
 - 合計金額：`Σ ROUND(CAST(UnitPrice AS decimal(19,4)) × (1 − CAST(Discount AS decimal(9,4))) × Quantity, 2)` ＋ `Freight`。
-  `Discount` は `real` なので `decimal` に変換して計算する（Common §3）。
+  `Discount` は `real` なので `decimal` に変換して計算する（Common §3）。明細が無い受注の小計は 0（`ISNULL(SUM(...), 0)`）、`Freight` が NULL のときは 0（`ISNULL(o.Freight, 0)`）として足す（@fe574ce で決定）。
 - 受注日（終了）は「翌日未満」で比較する（当該日を含む。時刻部があっても含める）。
 - 納期遅延の絞り込みは、当日（`DateTime.Today`）をパラメタで渡す。状況の判定（ORD-T7）は取得後に C# で行う。
 - 検証（`VAL-DATE`）は B層：開始 > 終了なら `BusinessApplicationException`（フレームワークが `ErrorFlag = true` に変換）。
-  メッセージ ID **`ORD_VAL_DATE` は仮**（テスト仕様 質問 1。決まったら差し替える）。
+  メッセージは文言で定まる（「受注日の開始は終了以前を指定してください。」）。**ID は実装で決める**（Common 7 節）ので、`ORD_VAL_DATE` を採用する（仮ではない）。テストは文言を確かめ、ID は確かめない。
 
 ## 画面
 - ページ読み込み（`EV-ORD-101`）：`Index` が条件なしで `OrdTfSearch` を呼ぶ。

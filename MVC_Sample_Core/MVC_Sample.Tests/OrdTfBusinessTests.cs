@@ -16,7 +16,7 @@ namespace MVC_Sample.Tests
 {
     /// <summary>
     /// OrdTfBusiness.OrdTfSearch の単体テスト。
-    /// 仕様：docs/spec/test6-testfirst-mvc-core-tests.md（NorthwindDbSampleSpec@6545f92）
+    /// 仕様：docs/spec/test6-testfirst-mvc-core-tests.md（NorthwindDbSampleSpec@fe574ce）
     /// </summary>
     public class OrdTfBusinessTests
     {
@@ -352,6 +352,43 @@ namespace MVC_Sample.Tests
             Assert.That(Convert.ToDecimal(rv.Rows.Rows[0]["TotalAmount"]), Is.EqualTo(53.97m));
         }
 
+        [Test, Basis("Common §3 金額の算出式")]
+        public void OrdTfSearch_合計金額_明細が無い受注は送料だけ()
+        {
+            AddOrder(custA, today, freight: 5.00m);   // 明細なし（小計 0）
+
+            var rv = Search(pv => pv.CustomerID = custA);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Rows.Rows.Count, Is.EqualTo(1));
+            Assert.That(Convert.ToDecimal(rv.Rows.Rows[0]["TotalAmount"]), Is.EqualTo(5.00m));
+        }
+
+        [Test, Basis("Common §3 金額の算出式")]
+        public void OrdTfSearch_合計金額_送料がNULLは0として足す()
+        {
+            int id = AddOrder(custA, today, freight: null);   // Freight = NULL を INSERT で明示
+            AddDetail(id, 1, 10.00m, 0f, 3);                  // 10 × 1 × 3 = 30.00
+
+            var rv = Search(pv => pv.CustomerID = custA);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Rows.Rows.Count, Is.EqualTo(1));
+            Assert.That(Convert.ToDecimal(rv.Rows.Rows[0]["TotalAmount"]), Is.EqualTo(30.00m));
+        }
+
+        [Test, Basis("Common §3 金額の算出式")]
+        public void OrdTfSearch_合計金額_明細も送料も無い()
+        {
+            AddOrder(custA, today, freight: null);    // 明細なし・Freight = NULL
+
+            var rv = Search(pv => pv.CustomerID = custA);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Rows.Rows.Count, Is.EqualTo(1));
+            Assert.That(Convert.ToDecimal(rv.Rows.Rows[0]["TotalAmount"]), Is.EqualTo(0.00m));
+        }
+
         [Test, Basis("受注検索クエリ"), Basis("SC-ORD-01-I06 列 7")]
         public void OrdTfSearch_外部結合_配送業者がNULL()
         {
@@ -404,8 +441,9 @@ namespace MVC_Sample.Tests
                 pv.CustomerID = custA; pv.OrderDateFrom = today.AddDays(1); pv.OrderDateTo = today;
             });
 
-            // ErrorMessageID は確かめない（ID は後で決める。spec 質問 1）。
+            // ErrorMessageID は確かめない（ID は仕様で定めず、実装で決める。Common 7 節）。
             Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo("受注日の開始は終了以前を指定してください。"));
             Assert.That(rv.Rows == null || rv.Rows.Rows.Count == 0, Is.True);
             Assert.That(rv.TotalCount, Is.EqualTo(0));
         }
@@ -486,7 +524,7 @@ namespace MVC_Sample.Tests
 
         /// <summary>受注を 1 件入れて OrderID を返す（既定：担当者 1・配送業者 1・未出荷・要求納期は受注日の 30 日後）</summary>
         private int AddOrder(string customerId, DateTime orderDate,
-            DateTime? required = null, DateTime? shipped = null, int? employeeId = 1, int? shipVia = 1, decimal freight = 0m,
+            DateTime? required = null, DateTime? shipped = null, int? employeeId = 1, int? shipVia = 1, decimal? freight = 0m,
             bool requiredIsNull = false)
         {
             // required の省略 = 受注日の 30 日後。NULL にしたいときは requiredIsNull: true。
@@ -495,7 +533,7 @@ namespace MVC_Sample.Tests
         }
 
         private int InsertOrder(string customerId, DateTime orderDate, object required, object shipped,
-            object employeeId, object shipVia, decimal freight)
+            object employeeId, object shipVia, decimal? freight)
         {
             return Convert.ToInt32(ScalarObj(
                 "INSERT INTO Orders (CustomerID, EmployeeID, OrderDate, RequiredDate, ShippedDate, ShipVia, Freight) " +
