@@ -82,12 +82,19 @@
                             <li onclick="window.location.href = '@Url.Content("~/")';">
                                 <i class="fa fa-arrow-circle-right"></i> メニュー２
                             </li>
+                            <li onclick="window.location.href = '@Url.Content("~/OrdTf")';">
+                                <i class="fa fa-arrow-circle-right"></i> 受注一覧
+                            </li>
                         }
                     </ul>
                 </div>
             </div>
             <div id="contents" class="col-sm-8 col-md-9">
                 @RenderBody()
+                @* コンテンツのフッタ部（機能トランザクションを起動するメインボタンを 5 つ置く。画面が @section で定義する） *@
+                <div id="footer-buttons">
+                    @RenderSection("FooterButtonsSection", required: false)
+                </div>
             </div>
         </div>
     </div>
