@@ -1,0 +1,148 @@
+﻿@*
+    //**********************************************************************************
+    //* サンプル アプリ・モデル
+    //**********************************************************************************
+
+    //**********************************************************************************
+    //* クラス名        ：Index
+    //* クラス日本語名  ：受注一覧（SC-ORD-01）
+    //*
+    //* 作成日時        ：2026/11/13
+    //* 作成者          ：実装役
+    //* 更新履歴        ：
+    //*
+    //*  日時        更新者            内容
+    //*  ----------  ----------------  -------------------------------------------------
+    //*  2026/11/13  実装役            新規作成
+    //**********************************************************************************
+*@
+
+@using System.Globalization
+@using MVC_Sample.Models.ViewModels
+@using WSIFType_sample
+@model OrdTfViewModel
+
+@{
+    // ページタイトル
+    ViewBag.Title = "受注一覧";
+    CultureInfo inv = CultureInfo.InvariantCulture;
+    string msgClass = string.IsNullOrEmpty(Model.Message) ? "" : (Model.MessageIsError ? "text-danger" : "text-info");
+}
+
+@* スクリプト・セクション（RenderSection("HeaderScriptsSection", required: true)に出力されます） *@
+@section HeaderScriptsSection{
+    <!-- Head 部の section -->
+}
+
+@* フッタ部のメインボタン（5 つ）。@section は <form> の外に描画されるので form 属性で紐付ける。
+   機能トランザクションを起動するのは検索だけ。残りは非活性（cmn-framework.md の画面共通） *@
+@section FooterButtonsSection{
+    <button type="submit" id="btnMain1" class="btn btn-primary" form="OrdTfForm" formaction="@Url.Action("Search")">検索</button>
+    @for (int i = 2; i <= 5; i++)
+    {
+        <button type="button" id="@("btnMain" + i)" class="btn btn-secondary" disabled="disabled"></button>
+    }
+}
+
+@* 本文レイアウト（RenderBodyに出力されます） *@
+@using (Html.BeginForm("Search", "OrdTf", FormMethod.Post, new { id = "OrdTfForm", onsubmit = "Fx_OnSubmit();" }))
+{
+    @Html.AntiForgeryToken()
+
+    @* 入力欄で Enter を押したときの暗黙の送信は、文書の順で最初の submit ボタンが受ける。
+       検索ボタン（#btnMain1）は @section でフォームの後ろに出るので、先頭に「検索」へ送る見えない submit を置く *@
+    <button type="submit" tabindex="-1" aria-hidden="true" style="display:none" form="OrdTfForm" formaction="@Url.Action("Search")"></button>
+
+    @* 一覧状態の保持（最後に実行した検索の条件・現在ページ） *@
+    @Html.HiddenFor(m => m.PCustomerID)
+    @Html.HiddenFor(m => m.PEmployeeID)
+    @Html.HiddenFor(m => m.POrderDateFrom)
+    @Html.HiddenFor(m => m.POrderDateTo)
+    @Html.HiddenFor(m => m.PShippedStatus)
+    @Html.HiddenFor(m => m.PPageNo)
+    @Html.HiddenFor(m => m.PTotalPages)
+
+    @* 共通メッセージ領域（エラーは text-danger、情報は text-info） *@
+    <div id="messageArea" class="@msgClass">@Model.Message</div>
+
+    @* 検索条件（SC-ORD-01-I01〜I05） *@
+    <div class="row">
+        <div class="form-group col-6">
+            <label for="CustomerID">顧客</label>
+            @Html.DropDownListFor(m => m.CustomerID, Model.CustomerItems, new { @class = "form-control" })
+        </div>
+        <div class="form-group col-6">
+            <label for="EmployeeID">担当者</label>
+            @Html.DropDownListFor(m => m.EmployeeID, Model.EmployeeItems, new { @class = "form-control" })
+        </div>
+    </div>
+    <div class="row">
+        <div class="form-group col-4">
+            <label for="OrderDateFrom">受注日（開始）</label>
+            @Html.TextBoxFor(m => m.OrderDateFrom, new { @class = "form-control", placeholder = "yyyy/MM/dd" })
+            <span id="OrderDateFromError" class="text-danger">@Model.ErrorFrom</span>
+        </div>
+        <div class="form-group col-4">
+            <label for="OrderDateTo">受注日（終了）</label>
+            @Html.TextBoxFor(m => m.OrderDateTo, new { @class = "form-control", placeholder = "yyyy/MM/dd" })
+            <span id="OrderDateToError" class="text-danger">@Model.ErrorTo</span>
+        </div>
+        <div class="form-group col-4">
+            <label for="ShippedStatus">出荷状況</label>
+            @Html.DropDownListFor(m => m.ShippedStatus, Model.StatusItems, new { @class = "form-control" })
+        </div>
+    </div>
+
+    @* 検索結果（SC-ORD-01-I06〜I08） *@
+    <div>
+        <span id="totalCount">全 @Model.TotalCount 件</span>
+    </div>
+    <table id="orderList" class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th>受注 ID</th>
+                <th>顧客名</th>
+                <th>担当者名</th>
+                <th>受注日</th>
+                <th>要求納期</th>
+                <th>出荷日</th>
+                <th>配送業者</th>
+                <th>合計金額</th>
+                <th>状況</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (OrdTfRow row in Model.Rows)
+            {
+                <tr class="@(row.Status == "納期遅延" ? "table-danger" : "")">
+                    <td>@row.OrderID</td>
+                    <td>@row.CustomerName</td>
+                    <td>@row.EmployeeName</td>
+                    <td>@(row.OrderDate.HasValue ? row.OrderDate.Value.ToString("yyyy/MM/dd", inv) : "")</td>
+                    <td>@(row.RequiredDate.HasValue ? row.RequiredDate.Value.ToString("yyyy/MM/dd", inv) : "")</td>
+                    <td>@(row.ShippedDate.HasValue ? row.ShippedDate.Value.ToString("yyyy/MM/dd", inv) : "")</td>
+                    <td>@row.ShipperName</td>
+                    <td>@row.TotalAmount.ToString("#,##0.00", inv)</td>
+                    <td>@row.Status</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @* ページ移動（SC-ORD-01-B05。先頭・前・次・末尾の 4 つ。該当方向にページが存在するときだけ活性） *@
+    <div>
+        <span id="pageInfo">@Model.PageNo / @Model.TotalPages ページ</span>
+        @{
+            bool hasPrev = Model.PageNo > 1;
+            bool hasNext = Model.PageNo < Model.TotalPages;
+        }
+        <button type="submit" id="btnPageFirst" class="btn btn-outline-primary btn-sm" formaction="@Url.Action("Move")" name="dir" value="first" disabled="@(!hasPrev)">先頭</button>
+        <button type="submit" id="btnPagePrev" class="btn btn-outline-primary btn-sm" formaction="@Url.Action("Move")" name="dir" value="prev" disabled="@(!hasPrev)">前へ</button>
+        <button type="submit" id="btnPageNext" class="btn btn-outline-primary btn-sm" formaction="@Url.Action("Move")" name="dir" value="next" disabled="@(!hasNext)">次へ</button>
+        <button type="submit" id="btnPageLast" class="btn btn-outline-primary btn-sm" formaction="@Url.Action("Move")" name="dir" value="last" disabled="@(!hasNext)">末尾</button>
+    </div>
+}
+
+@* スクリプト・セクション（RenderSection("FooterScriptsSection", required: true)に出力されます） *@
+@section FooterScriptsSection{
+}

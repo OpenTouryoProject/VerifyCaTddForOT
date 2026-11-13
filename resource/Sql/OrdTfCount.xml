@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ROOT>
+  -- OrdTfCount : total count of the order search (EV-ORD-102 / EV-ORD-104)
+  SELECT
+    COUNT(*)
+  FROM
+    Orders o
+  <WHERE>
+    WHERE
+      <IF>AND o.CustomerID = @CustomerID</IF>
+      <IF>AND o.EmployeeID = @EmployeeID</IF>
+      <IF>AND o.OrderDate &gt;= @OrderDateFrom</IF>
+      <IF>AND CAST(o.OrderDate AS date) &lt;= @OrderDateTo</IF>
+      <SELECT name="ShippedStatus">
+        <CASE value="NOTSHIPPED">AND o.ShippedDate IS NULL</CASE>
+        <CASE value="SHIPPED">AND o.ShippedDate IS NOT NULL</CASE>
+        <CASE value="LATE">AND o.RequiredDate IS NOT NULL AND ((o.ShippedDate IS NULL AND o.RequiredDate &lt; @Today) OR (o.ShippedDate IS NOT NULL AND o.ShippedDate &gt; o.RequiredDate))</CASE>
+      </SELECT>
+  </WHERE>
+</ROOT>

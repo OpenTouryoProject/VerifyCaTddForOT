@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ROOT>
+  -- OrdTfSearch : one page of the order search (EV-ORD-102 / EV-ORD-104)
+  SELECT
+    o.OrderID,
+    c.CompanyName AS CustomerName,
+    e.LastName,
+    e.FirstName,
+    o.OrderDate,
+    o.RequiredDate,
+    o.ShippedDate,
+    s.CompanyName AS ShipperName,
+    ISNULL(d.Subtotal, 0) + ISNULL(o.Freight, 0) AS TotalAmount
+  FROM
+    Orders o
+    LEFT JOIN Customers c ON c.CustomerID = o.CustomerID
+    LEFT JOIN Employees e ON e.EmployeeID = o.EmployeeID
+    LEFT JOIN Shippers s ON s.ShipperID = o.ShipVia
+    OUTER APPLY (
+      SELECT
+        SUM(ROUND(CAST(od.UnitPrice AS decimal(19, 4)) * (1 - CAST(od.Discount AS decimal(5, 4))) * od.Quantity, 2)) AS Subtotal
+      FROM
+        [Order Details] od
+      WHERE
+        od.OrderID = o.OrderID
+    ) d
+  <WHERE>
+    WHERE
+      <IF>AND o.CustomerID = @CustomerID</IF>
+      <IF>AND o.EmployeeID = @EmployeeID</IF>
+      <IF>AND o.OrderDate &gt;= @OrderDateFrom</IF>
+      <IF>AND CAST(o.OrderDate AS date) &lt;= @OrderDateTo</IF>
+      <SELECT name="ShippedStatus">
+        <CASE value="NOTSHIPPED">AND o.ShippedDate IS NULL</CASE>
+        <CASE value="SHIPPED">AND o.ShippedDate IS NOT NULL</CASE>
+        <CASE value="LATE">AND o.RequiredDate IS NOT NULL AND ((o.ShippedDate IS NULL AND o.RequiredDate &lt; @Today) OR (o.ShippedDate IS NOT NULL AND o.ShippedDate &gt; o.RequiredDate))</CASE>
+      </SELECT>
+  </WHERE>
+  ORDER BY
+    CAST(o.OrderDate AS date) DESC, o.OrderID DESC
+  OFFSET @Offset ROWS FETCH NEXT 20 ROWS ONLY
+</ROOT>
