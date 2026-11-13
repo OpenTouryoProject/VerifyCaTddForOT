@@ -14,7 +14,7 @@ if (-not (Test-Path $nuget)) {
 if (-not $nuget) { throw "nuget.exe not found (tools\ or C:\otr\OpenTouryo-<ref>\root\programs\)" }
 
 # net48 (packages.config). One line per sln taken out.
-foreach ($rel in 'MVC_Sample\MVC_Sample.sln') {
+foreach ($rel in 'MVC_Sample\MVC_Sample.sln', 'WebForms_Sample\WebForms_Sample.sln') {
     $sln = Join-Path $repo $rel
     if (-not (Test-Path $sln)) { continue }
     & $nuget restore $sln -MSBuildPath (Split-Path $msb)
@@ -23,6 +23,22 @@ foreach ($rel in 'MVC_Sample\MVC_Sample.sln') {
     if ($LASTEXITCODE -ne 0) { throw "build failed: $rel ($LASTEXITCODE)" }
 }
 
+# 3-tier rich client (WSClient_*): *_all.sln = client + WS host(WCFService/ASPNETWebService) + WSServer/WSIFType.
+# Mixed restore: packages.config (ASPNETWebService needs a project-local packages\ dir) + PackageReference (WCFService, client).
+foreach ($rel in 'WS_sample\WSClient_sample\WSClientWin_sample\WSClientWin_sample_all.sln') {
+    $sln = Join-Path $repo $rel
+    if (-not (Test-Path $sln)) { continue }
+    & $nuget restore $sln -MSBuildPath (Split-Path $msb)
+    if ($LASTEXITCODE -ne 0) { throw "nuget restore failed: $rel ($LASTEXITCODE)" }
+    $asp = Join-Path $repo 'WS_sample\ServiceInterface\ASPNETWebService'
+    if (Test-Path (Join-Path $asp 'packages.config')) {
+        & $nuget restore (Join-Path $asp 'packages.config') -PackagesDirectory (Join-Path $asp 'packages') -MSBuildPath (Split-Path $msb)
+        if ($LASTEXITCODE -ne 0) { throw "nuget restore (ASPNETWebService) failed ($LASTEXITCODE)" }
+    }
+    & $msb $sln /t:restore /nologo /v:m
+    & $msb $sln /p:Configuration=Debug /nologo /v:m
+    if ($LASTEXITCODE -ne 0) { throw "build failed: $rel ($LASTEXITCODE)" }
+}
 # net10.0 (SDK): dotnet build restores. One line per sln taken out.
 foreach ($rel in 'MVC_Sample_Core\MVC_Sample.sln') {
     $sln = Join-Path $repo $rel

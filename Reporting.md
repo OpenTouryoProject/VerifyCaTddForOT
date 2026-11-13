@@ -54,3 +54,49 @@
 3. **（スキル）ツールの Core 版を、net48 と net10.0 の 2 つめのランタイムを足す回に取り出す手順が `daogentool.md` にしか無く、`opentouryo-project-setup` の流れ（「既存への追加」）には出てこない。** 今回は `daogentool.md` に従って追加した。
 4. **（上流）基盤ビルド（`3_Build_Business_netcore100`）で `NU1902`（`Microsoft.AspNetCore.WebUtilities` 2.3.0 の脆弱性・中）が出る。** ビルドは通る。上流の依存の問題。
 5. **（自分の作業）PowerShell で `Set-Location` を使わず `cd` だけで進めたため、.NET の `File` API の相対パスが別のフォルダを指し、編集が空振りした。** 絶対パスにして直した。
+## ケース3：`/opentouryo-project-setup` で WebForms_Sample net48 / develop（既存 ZIP）（2026-11-13）
+
+- 取得元：ケース1 の develop ZIP（`D0C576284E55`）。net48 の基盤はケース1 でベンダ済みのため、③ は流用した（再ビルドなし）。
+- ①′ B層の置き場所：**2（WS_sample に置いて共用）**を選択。ケース1 の `Shared\`・`WS_sample\` をそのまま使い、WebForms から `WSIFType_sample`・`WSServer_sample` を ProjectReference した。
+- 取り出し：294 ファイル。csproj の `<Compile>`/`<Content>` を実ファイルと突き合わせて欠落は無かった。
+- 張替：`OpenTouryo.*`・`MySql.Data`・`Oracle.ManagedDataAccess` の HintPath を `..\..\OpenTouryoAssemblies\Build_net48\` へ。WS の DLL 参照は削除して ProjectReference に替え、`WebForms_Sample.sln` に 2 プロジェクトを追加した（Project 行 2、構成行 8 を検算）。
+  `app.config` の `C:\root\files\resource\` を持つ 12 キーを `%OT_RESOURCE_ROOT%\` に張替（資料の「WebForms は 12」と一致。残り無し）。
+- (C) 6：`AppCode\sample` の `LayerB.cs`・`Dao\LayerD.cs`・`Dao\DaoShippers.cs` を削除（csproj の Compile も）し、`sampleScreen.aspx.cs` の `using MyType;` を `using WSIFType_sample;`＋`using WSServer_sample.Business;` に替えた。`GetMasterData`・`DaoCategories`・`DaoSuppliers`・`ProductsTableAdapter`・`Common\Test*Value` は残した。
+- 到達点：`build-app.ps1` 全体が成功（WebForms 警告 0・エラー 0）。`aspnet_compiler` 成功（CS1685 以外なし）。IIS Express（8080）で `/Index.html`=200、`/Aspx/start/login.aspx`=200、`/Aspx/Framework/Ping.aspx`=302。
+  ログイン POST（hidden 全件返し）は 302 → `menu.aspx`。ASP.NET State Service は Running だった。
+
+### 未確認
+
+- **DB 到達は確認できなかった。** `sampleScreen.aspx`・`sampleScreen_cc.aspx` で件数取得を押すとエラー画面になり、ACCESS ログは `DamSqlSvr.ConnectionOpen` の `SqlException`（error 40、localhost:1433 に接続できない）だった。
+  この環境で SQL Server が起動していないため（`opentouryo-project-setup-db` で立てていない）。B層の呼び出しが Shared の B層から Dam の接続まで届いたことは確認できたが、SQL の実行結果は未確認。
+- `sampleScreen_cc.aspx` の `testInProcess` も同じ理由で結果は未確認。
+
+### 問題点・スキルの改善候補
+
+1. **（スキル）`webforms.md` の (C) 手順に、`WebForms_Sample.sln` へ WS 2 プロジェクトを足すときの「挿し込み位置」「構成行」の具体例が無い。** `webservices.md` の注意（最後の `EndProject` の直後、構成は 8 行）に従えば足りたが、MVC と同じ編集を WebForms にも書き起こす必要があり、スクリプト化されていない。
+2. **（スキル）`run-verify.md` の WebForms 非対話手順（ログイン→件数取得）はあるが、ログイン ID・パスワードの値が書かれていない**（今回は `user1`/`user1` で通った。`ctl00$txtUserID` 系が「空でなければ認証」と書かれているので動くが、DB 到達の確認には DB が要ることを手順の冒頭に書くと迷わない）。
+3. **（スキル）検証で「DB 未起動」を示す手順が無い。** `opentouryo-project-setup-db` で Docker に立てるか、既存 DB を使うかは選択式だが、検証プロンプトの流れではその判断が出てこない（今回は DB を立てていない）。
+## ケース8：`/opentouryo-project-setup` で WSClientWin_sample net48 / develop（既存 ZIP）（2026-11-13）
+
+- 取得元：ケース1 の develop ZIP（`D0C576284E55`）を取り直さず使った。**RichClient（2CS 系）なので ③ は再実行が必要**：`setup-build.ps1 -Runtime net48 -Ref develop -RichClient`（展開ツリーを作り直して全部建て直した）。
+  `OpenTouryo.Business.RichClient.dll`・`OpenTouryo.CustomControl.RichClient.dll` が `Build_net48\` に揃ったことを確認し、`build-ref.txt` に `richclient=True` で追記した。
+- Web 系ではないので ①′（B層の置き場所）は聞いていない。ケース1 で作った `Shared\` と `WS_sample\{WSServer_sample,WSIFType_sample}`（net48）が既にあるため、クライアントとホストはそれらを ProjectReference した。
+- 取り出し：`WS_sample\WSClient_sample\WSClientWin_sample\`（23 ファイル）、`WS_sample\ServiceInterface\{ASPNETWebService,WCFService}`（22 ファイル。源は `Frameworks\Infrastructure\ServiceInterface`）。`<Compile>`/`<Content>` の欠落なし。
+- 張替：3 プロジェクトとも `OpenTouryo.*`・`Newtonsoft.Json` の HintPath を `..\..\..\OpenTouryoAssemblies\Build_net48\` へ。`WSIFType_sample`・`WSServer_sample` の DLL 参照は削除して ProjectReference（`..\..\WSIFType_sample\…`・`..\..\WSServer_sample\…`）に替えた。
+  config：クライアント `app.config` は 1 キー（`SqlTextFilePath`）、ASPNETWebService `app.config`・WCFService `App.config` は各 6 キーを `%OT_RESOURCE_ROOT%\` に張替（資料と一致。`C:\root` 残りなし）。
+- `WSClientWin_sample_all.sln`：源の 3 プロジェクト版に、ホストのパスを `..\..\ServiceInterface\…` に直し、`WSServer_sample`・`WSIFType_sample` を足した（Project 行は計 5、新規 2 GUID に構成 16 行ずつ。WCFService の行を雛形にして GUID だけ差し替え）。
+- 到達点：`build-app.ps1`（`_all.sln` の 5 プロジェクトを含む）成功、警告・エラー 0。クライアント exe は `-WorkingDirectory` を付けて起動し 7 秒生存。
+  ASPNETWebService を IIS Express（8082）で起動し、`GET /test`=200、`GET /WebAPIControllerForFx`=405（POST 専用のルートが生きている）。`bin\` に `WSServer_sample.dll` が入っていた。
+
+### 未確認
+
+- クライアント GUI から WS 越しに呼ぶ動作（既定 `protocol="5"`）と、DB に届く動作は確認していない（SQL Server 未起動。ケース3 と同じ）。到達点は「5 プロジェクトのビルド＋ホスト稼働＋クライアント起動生存」まで。
+- WCFService（`protocol="4"` の net.tcp ホスト）は起動していない。
+
+### 問題点・スキルの改善候補
+
+1. **（スキル）`opentouryo-project-setup` の「既存への追加」に、「RichClient 系は同一ランタイムでも ③ の再実行が要る」と書かれているが、再実行は展開ツリーを作り直して全部建て直す**（今回 net48 の基盤を再ビルドした）。
+   MVC・WebForms のためにベンダ済みの `Build_net48\` が上書きされるが、同じ ZIP なので DLL は同等。RichClient の 2 DLL だけを足すスクリプトは無い（`-RichClient` の挙動は書かれているとおり）。
+2. **（スキル）`_all.sln` の作り方は、WS が既に Shared で共有済みのリポジトリでは「源の 3 プロジェクト版 → ホストのパス直し → WSServer/WSIFType を足す」になり、手編集が多い。** 雛形になる「動く 5 プロジェクトの `_all.sln`」が無い最初の WS クライアント向けの手順（`webservices.md`）どおりに行ったが、スクリプト化されていない（今回はその場で PowerShell に書いた）。
+3. **（スキル）`build-app.ps1` の雛形に、`_all.sln`（packages.config と PackageReference の混在）の restore 手順が無い。** `webservices.md` の「ASPNETWebService は project 直下へ別途 restore」を反映して、`nuget restore <sln>` → `nuget restore <asp>\packages.config -PackagesDirectory <asp>\packages` → `msbuild /t:restore` → build の順にしたら通った。雛形に入れておくとよい。
+4. **（確認）WS 経路の変更点**：クライアント・ホストとも ProjectReference 先が Shared のリンク方式（`WS_sample\WSServer_sample` が `Shared\` を取り込む）になったが、ビルド・起動に影響は出ていない。
