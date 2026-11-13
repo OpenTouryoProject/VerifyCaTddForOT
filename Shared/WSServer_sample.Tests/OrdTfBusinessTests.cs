@@ -261,6 +261,24 @@ namespace WSServer_sample.Tests
             Assert.That(Ids(rv), Is.EquivalentTo(new[] { o0, o1530 }));
         }
 
+        [Test, Basis("EV-ORD-102"), Basis("DEC-ORD-07"), Basis("DEC-ORD-09")]
+        public void OrdTfSearch_受注日の終了が上限の日付でも検索できる()
+        {
+            // 終了日の翌日を作って比べる実装は、9999/12/31 で DateTime の上限を超えて例外になる（その回帰）
+            string a = data.NewCustomer('A');
+            int o1530 = data.NewOrder(customerId: a, orderDate: D(2199, 3, 10, 15, 30));
+            int o11 = data.NewOrder(customerId: a, orderDate: D(2199, 3, 11));
+
+            OrdTfReturnValue rv = null;
+            // new Action(...) と書く（net48 の C# 7.3 では () => … が曖昧で CS0121）
+            Assert.DoesNotThrow(new Action(() => { rv = Search(pv => { pv.CustomerID = a; pv.OrderDateTo = "9999/12/31"; }); }));
+
+            Assert.That(rv, Is.Not.Null);
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.ErrorFields, Is.Empty);
+            Assert.That(Ids(rv), Is.EquivalentTo(new[] { o1530, o11 }));
+        }
+
         /// <summary>「状況のデータ」の 8 件（顧客 A）。記号 → OrderID</summary>
         private Dictionary<char, int> StatusData(string customerId)
         {

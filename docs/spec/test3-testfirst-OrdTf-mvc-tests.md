@@ -102,6 +102,7 @@
 | OrdTfSearch_受注日の開始を含む | EV-ORD-102, SC-ORD-01-I03 | 顧客 A の受注：`d-1 23:59`・`d 00:00`・`d+1 00:00`（`d` = 2199/03/10） | CustomerID = A、OrderDateFrom = "2199/03/10" | Rows が `d 00:00`・`d+1` の 2 件（`d-1 23:59` は含まない） |
 | OrdTfSearch_受注日の終了は当日の時刻付きも含む | EV-ORD-102, SC-ORD-01-I04, DEC-ORD-07 | 顧客 A の受注：`d-1 00:00`・`d 00:00`・`d 15:30`・`d+1 00:00` | CustomerID = A、OrderDateTo = "2199/03/10" | Rows が `d-1`・`d 00:00`・`d 15:30` の 3 件（`d+1` は含まない） |
 | OrdTfSearch_受注日の開始と終了が同じ日 | EV-ORD-102, SC-ORD-01-I03, I04, DEC-ORD-07 | 上と同じ 4 件 | CustomerID = A、OrderDateFrom = OrderDateTo = "2199/03/10" | ErrorFlag = false。Rows が `d 00:00`・`d 15:30` の 2 件 |
+| OrdTfSearch_受注日の終了が上限の日付でも検索できる | EV-ORD-102 手順 2（当該日を含む）, DEC-ORD-07(a), DEC-ORD-09 | 顧客 A の受注 2 件：`2199/03/10 15:30`・`2199/03/11 00:00` | CustomerID = A、OrderDateTo = "9999/12/31"（理由：`yyyy/MM/dd` の存在する日付で検証を通る。終了日の翌日を作って比べる実装は `DateTime` の上限を超えて例外になるため、その回帰を確かめる） | 例外にならず ErrorFlag = false、ErrorFields が空、Rows が 2 件 |
 | OrdTfSearch_出荷状況で絞る（4 通り） | EV-ORD-102, SC-ORD-01-I05 | 「状況のデータ」の 8 件（顧客 A） | CustomerID = A、ShippedStatus = TestCase：「すべて」／「未出荷」／「出荷済」／「納期遅延」 | Rows の集合が、表の列のとおり：すべて = a〜h、未出荷 = a・b・c・d、出荷済 = e・f・g・h、納期遅延 = a・e。TotalCount も同じ件数 |
 | OrdTfSearch_出荷状況が未指定ならすべて | EV-ORD-102, SC-ORD-01-I05 | 同上 | CustomerID = A、ShippedStatus = null と ""（TestCase） | Rows が a〜h の 8 件 |
 | OrdTfSearch_空白だけの日付は未指定 | DEC-ORD-09, EV-ORD-102 | 顧客 A の受注 3 件（`2199/03/09`・`10`・`11`） | CustomerID = A、OrderDateFrom = "   "、OrderDateTo = " "（TestCase：両方空白／null／""） | ErrorFlag = false。Rows が 3 件（日付で絞らない） |
