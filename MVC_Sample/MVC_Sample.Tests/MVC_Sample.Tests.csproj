@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.3.0" />
+    <!-- 版は ..\MVC_Sample\packages.config と同じ。無いと SNI（ネイティブ）が写らず DllNotFoundException -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="OpenTouryo.Business">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_net48\OpenTouryo.Business.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenTouryo.Framework">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_net48\OpenTouryo.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenTouryo.Public">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_net48\OpenTouryo.Public.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MVC_Sample\MVC_Sample.csproj" />
+    <ProjectReference Include="..\..\WS_sample\WSIFType_sample\WSIFType_sample.csproj" />
+    <ProjectReference Include="..\..\WS_sample\WSServer_sample\WSServer_sample.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- B層を共用する構成：B層のテストのコードは Shared\WSServer_sample.Tests\ に 1 つだけ置き、リンクで取り込む -->
+    <Compile Include="..\..\Shared\WSServer_sample.Tests\**\*.cs" Link="Shared\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Web.config が <appSettings file="app.config"/> なので、app.config（appSettings の断片）をそのまま使う -->
+    <None Include="..\MVC_Sample\app.config" Link="MVC_Sample.appSettings.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
