@@ -23,12 +23,25 @@ foreach ($rel in 'MVC_Sample\MVC_Sample.sln') {
     if ($LASTEXITCODE -ne 0) { throw "build failed: $rel ($LASTEXITCODE)" }
 }
 
+# net10.0 (SDK): dotnet build restores. One line per sln taken out.
+foreach ($rel in 'MVC_Sample_Core\MVC_Sample.sln') {
+    $sln = Join-Path $repo $rel
+    if (-not (Test-Path $sln)) { continue }
+    dotnet build $sln -nologo -v q
+    if ($LASTEXITCODE -ne 0) { throw "build failed: $rel ($LASTEXITCODE)" }
+}
 # dev tools (HintPath + PackageReference mix -> restore, then build)
 foreach ($tool in 'DaoGen_Tool','DPQuery_Tool') {
     $toolSln = Join-Path $repo "OT_Tools\$tool\$tool.sln"
     if (Test-Path $toolSln) {
         & $msb $toolSln /t:restore,build /p:Configuration=Debug /nologo /v:m
         if ($LASTEXITCODE -ne 0) { throw "$tool build failed ($LASTEXITCODE)" }
+    }
+    # net48 and Core csproj share obj\ -> always restore before build (no --no-restore)
+    $coreSln = Join-Path $repo "OT_Tools\$tool\${tool}Core.sln"
+    if (Test-Path $coreSln) {
+        dotnet build $coreSln -nologo -v q
+        if ($LASTEXITCODE -ne 0) { throw "${tool}Core build failed ($LASTEXITCODE)" }
     }
 }
 Write-Host "Build OK." -ForegroundColor Green

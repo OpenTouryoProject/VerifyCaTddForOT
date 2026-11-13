@@ -30,3 +30,27 @@
    取り出しの後に「フォルダごとのファイル数」を確認する手順をスキルに書いておくと、同じ失敗を早く拾える。
 9. **（補足）MVC_Sample net48 の `app.config` のパス系キーは 6（`FxXMLMSGDefinition`・`FxXMLSPDefinition`・`FxLog4NetConfFile`・`SpRp_RsaCerFilePath`・`SpRp_RsaPfxFilePath`・`SqlTextFilePath`）。**
    `resource-config.md` の表（MVC net48 は 6）と一致した。`resource\Log\*.xml` の `C:\root` は 5 ファイル（資料どおり）で、全件張り替えた。
+
+## ケース2：`/opentouryo-project-setup` で MVC_Sample net10.0（MVC_Sample_Core）/ develop（既存 ZIP）（2026-11-13）
+
+- 取得元：ケース1 で取得した develop の ZIP（ハッシュ `D0C576284E55`）を取り直さず使った（`setup-build.ps1 -Runtime netcore100 -KeepExtract`）。`build-ref.txt` に追記済み。
+- ①′ B層の置き場所：**2（WS_sample_Core に置いて共用）**を選択。ケース1 の `Shared\` をそのまま使い、`WS_sample_Core\{WSIFType_sample,WSServer_sample}` は csproj だけを足した（フォルダごとのリンクで `Shared\` を取り込む）。
+- net48 と net10.0 の `WSServer_sample`・`WSIFType_sample` の `.cs` は、ハッシュ比較で全ファイル同一だった（資料どおり）。
+- 到達点：`dotnet build`（MVC_Sample_Core\MVC_Sample.sln）警告 0・エラー 0。`build-app.ps1` 全体（net48 の MVC・ツール 2 本の net48/Core 版を含む）も成功。
+  Kestrel（`--urls http://localhost:5080`）で `/`・`/Home/Index`・`/Home/Login`・`/Ping/Index` がすべて 200、`ACCESS` ログにフィルタのトレース（`OnActionExecuting` 系）が `%OT_RESOURCE_ROOT%\Log` に出た。
+- 取り出したもの：`MVC_Sample_Core\`、`WS_sample_Core\`、ツールの Core 版（`OT_Tools\*\*Core.csproj`・`*Core.sln`。HintPath を `Build_netcore100\net10.0\` へ張替）。
+  `appsettings.json` の `C:/root/files/resource/` を持つ 8 キーを `%OT_RESOURCE_ROOT%\\…` に張り替えた（資料の「core MVC は 8 キー」と一致。残りは無し）。
+
+### 未確認
+
+- **DB 到達（`/Crud1/…`・`/Crud2/…`）は確認していない**（ケース1 と同じ。Shared の B層を通る動作は、ビルドとページの 200 までしか確かめていない）。
+- `/Ping/Index` が 200、ログのフィルタのトレースが出ることまでで、`ShipperMapper` の変換は実行していない。
+
+### 問題点・スキルの改善候補
+
+1. **（スキル）サンプルの `appsettings.json` のコメントが `CONFIGURATION.md` 3〜7 節を指すが、取り出し対象に `CONFIGURATION.md` が無い**（ZIP のどこにあるかも書かれていない）。
+   コメントの「別の環境へ移すときは環境変数で差し替える」は、`FxContainerization`（値まるごと上書き）の話と読めるが、`%OT_RESOURCE_ROOT%` 方式とどちらを使うかは資料に明記が無い。今回は資料（`resource-config.md`）どおり `%OT_RESOURCE_ROOT%` にした。
+2. **（スキル）(C) の手順が「net48 の `.cs` を移し、net10.0 側は消す」と書くため、net10.0 を後から足す回は「`Shared\` は作り済みなので csproj だけを足す」と読み替える必要があった。** ケース1 の問題点 1 と同じ。後から足す手順を書いておくとよい。
+3. **（スキル）ツールの Core 版を、net48 と net10.0 の 2 つめのランタイムを足す回に取り出す手順が `daogentool.md` にしか無く、`opentouryo-project-setup` の流れ（「既存への追加」）には出てこない。** 今回は `daogentool.md` に従って追加した。
+4. **（上流）基盤ビルド（`3_Build_Business_netcore100`）で `NU1902`（`Microsoft.AspNetCore.WebUtilities` 2.3.0 の脆弱性・中）が出る。** ビルドは通る。上流の依存の問題。
+5. **（自分の作業）PowerShell で `Set-Location` を使わず `cd` だけで進めたため、.NET の `File` API の相対パスが別のフォルダを指し、編集が空振りした。** 絶対パスにして直した。

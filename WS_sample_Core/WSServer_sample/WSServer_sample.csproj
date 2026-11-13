@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Properties\**" />
+    <EmbeddedResource Remove="Properties\**" />
+    <None Remove="Properties\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Shared\Business\**\*.cs" Link="Business\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\Shared\Dao\**\*.cs" Link="Dao\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\Shared\Common\**\*.cs" Link="Common\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WSIFType_sample\WSIFType_sample.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="OpenTouryo.Business">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_netcore100\net10.0\OpenTouryo.Business.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenTouryo.Framework">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_netcore100\net10.0\OpenTouryo.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenTouryo.Public">
+      <HintPath>..\..\OpenTouryoAssemblies\Build_netcore100\net10.0\OpenTouryo.Public.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
