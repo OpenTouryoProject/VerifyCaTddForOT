@@ -1,6 +1,6 @@
 # 受注一覧（OrdTf）・MVC_Sample の仕様の決定
 
-対象：[テスト仕様](./test3-testfirst-OrdTf-mvc-tests.md)（段 1 承認済み）。仕様：NorthwindDbSampleSpec@e391dca。
+対象：[テスト仕様](./test3-testfirst-OrdTf-mvc-tests.md)（段 1 承認済み）。仕様：NorthwindDbSampleSpec@72e156e。
 
 ## 決定 1
 
@@ -13,4 +13,4 @@
 - 推奨と理由：1（定めない）。サンプルの利用者が入力する範囲ではなく、他の決定に影響しない。
 - 影響するケース：なし（2・3 が選ばれたら B層 3.6 に TestCase を足す）。他のケース（MVC_Sample_Core・WebForms_Sample）にも同じ問いが出る。
 - 記録先：仕様の決定記録（`LLD/Decisions/Orders.md`）
-- 判断：GO（1。定めない）。2026-11-13 に人が選んだ。記録の案：NorthwindDbSampleSpec の `LLD/Decisions/Orders.md` に DEC-ORD-10 として書いた（コミットは人）
+- 判断：GO（1。定めない）。2026-11-13 に人が選んだ。記録の案：NorthwindDbSampleSpec の `LLD/Decisions/Orders.md` に DEC-ORD-10 として書き、コミット済み（NorthwindDbSampleSpec@72e156e）

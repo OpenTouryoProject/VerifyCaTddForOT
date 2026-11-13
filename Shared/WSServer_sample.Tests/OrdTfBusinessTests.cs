@@ -12,7 +12,7 @@ namespace WSServer_sample.Tests
 {
     /// <summary>
     /// 受注一覧 OrdTf の B層（OrdTfBusiness）のルート メソッドの単体テスト。
-    /// 仕様：docs/spec/test3-testfirst-OrdTf-mvc-tests.md（NorthwindDbSampleSpec@e391dca）の 3 章。
+    /// 仕様：docs/spec/test3-testfirst-OrdTf-mvc-tests.md（NorthwindDbSampleSpec@72e156e）の 3 章。
     /// </summary>
     public class OrdTfBusinessTests
     {

@@ -10,7 +10,7 @@ namespace MVC_Sample.E2ETests
 {
     /// <summary>
     /// 受注一覧（SC-ORD-01）の画面のテスト（MVC_Sample ＝ net48 ASP.NET MVC）。
-    /// 仕様：docs/spec/test3-testfirst-OrdTf-mvc-tests.md（NorthwindDbSampleSpec@e391dca）の 4 章。
+    /// 仕様：docs/spec/test3-testfirst-OrdTf-mvc-tests.md（NorthwindDbSampleSpec@72e156e）の 4 章。
     /// B層で確かめること（抽出条件・並び・金額の計算・状況の判定）は繰り返さない。
     /// </summary>
     public class OrdTfScreenTests

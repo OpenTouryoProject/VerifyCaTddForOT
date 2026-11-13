@@ -1,6 +1,6 @@
 # テスト仕様：受注一覧 OrdTf（ケース1：MVC_Sample ＝ net48 ASP.NET MVC）
 
-起こした仕様の版：NorthwindDbSampleSpec@e391dca（main。本文 `HLD/Common.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`・`LLD/Decisions/Orders.md` を合わせて読んだ）
+起こした仕様の版：NorthwindDbSampleSpec@72e156e（main。本文 `HLD/Common.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`・`LLD/Decisions/Orders.md` を合わせて読んだ）
 規約：`docs/spec/cmn-framework.md` の「画面共通」「MVC」（VerifyCaTddForOT@aac8bc1）、`docs/spec/cmn-testfirst.md`、`docs/spec/test3-testfirst-OrdTf.md`
 
 対象：`SC-ORD-01`（`I01`〜`I08`、`B01`、`B05`）、`EV-ORD-101`・`EV-ORD-102`・`EV-ORD-104`。範囲外は対象の仕様のとおり（`EV-ORD-103`・`105`〜`108`、新規登録、出荷更新、詳細への遷移、一覧状態の復元）。
@@ -211,4 +211,4 @@ B層で確かめることは繰り返さない（抽出条件・並び・金額�
 
 | # | 仕様の ID | 問い | 決定 |
 | --- | --- | --- | --- |
-| 1 | `EV-ORD-102` 検証内容（`VAL-DATE`・`DEC-ORD-09`） | 1753/01/01 より前の日付（例 `1000/01/01`）は `DEC-ORD-09` の形式としては受け付けるが、`datetime` が持てない。どう扱うか | **決定済み：定めない（`DEC-ORD-10`、記録のコミット待ち）。テストの期待にしない**（ケースは作らない。決定のレポート `docs/spec/test3-testfirst-OrdTf-mvc-decisions.md`） |
+| 1 | `EV-ORD-102` 検証内容（`VAL-DATE`・`DEC-ORD-09`） | 1753/01/01 より前の日付（例 `1000/01/01`）は `DEC-ORD-09` の形式としては受け付けるが、`datetime` が持てない。どう扱うか | **決定済み：定めない（`DEC-ORD-10`）。テストの期待にしない**（ケースは作らない。決定のレポート `docs/spec/test3-testfirst-OrdTf-mvc-decisions.md`） |

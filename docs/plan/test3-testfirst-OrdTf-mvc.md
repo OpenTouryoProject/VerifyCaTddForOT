@@ -1,6 +1,6 @@
 # 計画：受注一覧 OrdTf（ケース1：MVC_Sample ＝ net48 ASP.NET MVC）
 
-テスト仕様：[test3-testfirst-OrdTf-mvc-tests.md](../spec/test3-testfirst-OrdTf-mvc-tests.md)（NorthwindDbSampleSpec@e391dca）。
+テスト仕様：[test3-testfirst-OrdTf-mvc-tests.md](../spec/test3-testfirst-OrdTf-mvc-tests.md)（NorthwindDbSampleSpec@72e156e）。
 B層 56 件（`Shared\WSServer_sample.Tests\`）と E2E 19 件（`MVC_Sample.E2ETests\`）を通す。**テストは変えない。**
 
 ## 使うスキル
