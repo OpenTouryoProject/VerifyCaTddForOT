@@ -1,6 +1,6 @@
 # 計画：受注一覧 OrdTf（ケース3：WebForms_Sample ＝ net48 ASP.NET Web Forms）
 
-テスト仕様：[test3-testfirst-OrdTf-webforms-tests.md](../spec/test3-testfirst-OrdTf-webforms-tests.md)（NorthwindDbSampleSpec@0b7e58a）。
+テスト仕様：[test3-testfirst-OrdTf-webforms-tests.md](../spec/test3-testfirst-OrdTf-webforms-tests.md)（NorthwindDbSampleSpec@2240ab3）。
 E2E 19 件（`WebForms_Sample\WebForms_Sample.E2ETests\`）を通す。**テストは変えない。**
 B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース1 で作成済み。このケースでは作らない・触らない。**
 ケース1 の計画：[test3-testfirst-OrdTf-mvc.md](./test3-testfirst-OrdTf-mvc.md)（設計事項はそれと同じで、下は Web Forms の違いだけを書く）。
@@ -16,7 +16,7 @@ B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース
 | レイヤ分割 | P層（`OrdTf.aspx.cs`）→ B層 `new OrdTfBusiness().DoBusinessLogic(pv, ReadCommitted)` 直呼び（Web の既定。`WebForms_Sample.csproj` が `WSServer_sample`・`WSIFType_sample` を既に `ProjectReference`）。P層から D層は呼ばない |
 | トランザクション・データアクセス | 読み取りだけ・B層のみ（ケース1 で作成済み）。分離レベルは B層のテストと同じ `ReadCommitted` |
 | 引数クラス | `new OrdTfParameterValue(this.ContentPageFileNoEx, "-" または fxEventArgs.ButtonID, "OrdTfInit" / "OrdTfSearch", "SQL", this.UserInfo)`（`opentouryo-p-call-business`。メソッド名は文字列で明示） |
-| 例外・エラー | 検証違反は B層が `ErrorFlag = true`・`ErrorMessage`・`ErrorFields` で返す。P層は `catch` しない。表示先：形式違反は項目直下、関連チェックは共通メッセージ領域（`DEC-CMN-04`・`05`）。**`ERR-DB`（DB への接続・実行の失敗）は、決定 1「定めない」（`docs/spec/test3-testfirst-OrdTf-webforms-decisions.md`）により、基盤のエラー処理に任せる**：「DB 接続エラー」は業務続行不可能なエラーとして、基盤の異常終了の処理（`UOC_ABEND`）に任せ、`OrdTf.aspx.cs` は例外を扱わない。`ERR-DB` の文言の表示と画面の状態を変えないことは、この範囲では求めず、テストの期待にしない |
+| 例外・エラー | 検証違反は B層が `ErrorFlag = true`・`ErrorMessage`・`ErrorFields` で返す。P層は `catch` しない。表示先：形式違反は項目直下、関連チェックは共通メッセージ領域（`DEC-CMN-04`・`05`）。**`ERR-DB`（DB への接続・実行の失敗）は、`DEC-CMN-07`（定めない）により、基盤のエラー処理に任せる**：「DB 接続エラー」は業務続行不可能なエラーとして、基盤の異常終了の処理（`UOC_ABEND`）に任せ、`OrdTf.aspx.cs` は例外を扱わない。`ERR-DB` の文言の表示と画面の状態を変えないことは、この範囲では求めず、テストの期待にしない |
 | 国際化・書式 | 日付 `yyyy/MM/dd`・金額 `#,##0.00`（`CultureInfo.InvariantCulture`）、空値は空文字（P層で文字列にしてから GridView へ） |
 
 ## 実装の決定（作り方だけが変わること。仕様の振る舞いは変えない）

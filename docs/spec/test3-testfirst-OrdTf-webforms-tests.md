@@ -1,6 +1,6 @@
 # テスト仕様：受注一覧 OrdTf（ケース3：WebForms_Sample ＝ net48 ASP.NET Web Forms）
 
-起こした仕様の版：NorthwindDbSampleSpec@0b7e58a（main の先頭。DEC-ORD-11 までを含む。本文 `HLD/Common.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`・`LLD/Decisions/Orders.md` を合わせて読んだ。ケース1・2 の版 `72e156e` からの差分は `LLD/Decisions/Orders.md` の `DEC-ORD-11` の追加（と索引の件数）だけで、既存のケースの期待は変わらない。6 章）
+起こした仕様の版：NorthwindDbSampleSpec@2240ab3（main の先頭。DEC-ORD-11・DEC-CMN-07 までを含む。本文 `HLD/Common.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`・`LLD/Decisions/Orders.md` を合わせて読んだ。ケース1・2 の版 `72e156e` からの差分は `LLD/Decisions/Orders.md` の `DEC-ORD-11` の追加（と索引の件数）だけで、既存のケースの期待は変わらない。0b7e58a から 2240ab3 への差分は `LLD/Decisions/Common.md` の `DEC-CMN-07` の追加（と索引の件数）だけで、ケースの期待は変わらない。6 章）
 規約：`docs/spec/cmn-framework.md` の「画面共通」「WebForms」（VerifyCaTddForOT@bc1b648。`cmn-framework.md` はコミット済みで未変更）、`docs/spec/cmn-testfirst.md`、`docs/spec/test3-testfirst-OrdTf.md`、`docs/plan/cmn-testfirst.md` の「B層を共用する構成」
 ケース1 のテスト仕様：[test3-testfirst-OrdTf-mvc-tests.md](./test3-testfirst-OrdTf-mvc-tests.md)（以下「ケース1」）。ケース2：[test3-testfirst-OrdTf-mvc-core-tests.md](./test3-testfirst-OrdTf-mvc-core-tests.md)。決定のレポート：[ケース1](./test3-testfirst-OrdTf-mvc-decisions.md)・[ケース2](./test3-testfirst-OrdTf-mvc-core-decisions.md)
 
@@ -99,7 +99,7 @@ B層で確かめることは繰り返さない（抽出条件・並び・金額�
 
 ## 5. 作らないケースと理由
 
-ケース1 の 5 章と同じ（`ERR-DB`・`PRE-DB`・システム エラー、初期表示での 0 件、範囲外の `EV-ORD-103`・`105`〜`108` など、`OrdTfInit` の配送業者・商品の選択肢）。加えて、このケースで次を作らない。
+ケース1 の 5 章と同じ（`ERR-DB`〔`DEC-CMN-07`：DB の失敗時の画面での振る舞いは定めない。実装に任せ、テストの期待にしない〕・`PRE-DB`・システム エラー、初期表示での 0 件、範囲外の `EV-ORD-103`・`105`〜`108` など、`OrdTfInit` の配送業者・商品の選択肢）。加えて、このケースで次を作らない。
 
 | 対象 | 理由 |
 | --- | --- |
@@ -111,9 +111,10 @@ B層で確かめることは繰り返さない（抽出条件・並び・金額�
 
 ## 6. 仕様の決定
 
-**なし。**ケース1・2 で決まった次が、そのまま当てはまる（新しいケースは作らない）。
+**段 1 で上げる仕様の決定はなし。**次の決定が当てはまる（`DEC-ORD-10`・`DEC-ORD-11` はケース1・2 で、`DEC-CMN-07` はこのケースの段 4 のレビューで決まった。新しいケースは作らない）。
 - `DEC-ORD-10`：1753/01/01 より前の日付の検索条件は定めない（ケースは作らない）。
 - `DEC-ORD-11`：検証エラーの直後の一覧が、他の利用者によるデータの変更をどう反映するかは定めない（実装に任せ、テストの期待にしない。決定のレポートには再び載せない）。
+- `DEC-CMN-07`：DB への接続・実行の失敗（`ERR-DB`）の画面での振る舞いは定めない（実装に任せ、テストの期待にしない。ケースは作らない）。
 
 このケース固有の問い（Web Forms の GridView・ViewState・マスタページ・ClientID・ログイン画面の id）は、仕様が決める範囲に無く、実装の決定（1・2 章）として扱った。
 

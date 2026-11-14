@@ -1,6 +1,6 @@
 # 受注一覧（OrdTf）・WebForms_Sample の仕様の決定
 
-対象：[テスト仕様](./test3-testfirst-OrdTf-webforms-tests.md)（段 1 承認済み）。仕様：NorthwindDbSampleSpec@0b7e58a。
+対象：[テスト仕様](./test3-testfirst-OrdTf-webforms-tests.md)（段 1 承認済み）。仕様：NorthwindDbSampleSpec@2240ab3（段 1 の承認時は 0b7e58a。決定 1 を DEC-CMN-07 として記録した版）。
 段 1 では仕様の決定が無かった。決定 1 は、段 4 のレビューで見つかった（テスト仕様 5 章が `ERR-DB` を「確かめられない」としたことで見えていなかった）。
 ケース1・ケース2 の決定は [mvc](./test3-testfirst-OrdTf-mvc-decisions.md)・[mvc-core](./test3-testfirst-OrdTf-mvc-core-decisions.md)。DEC-ORD-10・11 は記録済みで、ここでは再び問わない。
 
@@ -22,4 +22,4 @@
 - 推奨と理由：1（定めない）。サンプルの利用者が通常する操作ではなく、DB を落とすテストの手段が今無い。選択肢 2 は、仕様の動作を「求めない」と決める点で 1 と同じだが、基盤のエラー画面を期待として残す分、後で食い違いを問われやすい。決めるなら 2。3 は手間が大きい。
 - 影響するケース：ケース1（MVC_Sample）・ケース2（MVC_Sample_Core）にも同じ問いが出る。3 が選ばれたら、3 つのケースで実装を変え、テストを足す。
 - 記録先：仕様の決定記録（`LLD/Decisions/Common.md`。全モジュールに効くため）
-- 判断：GO（1。定めない）。2026-11-14 に人が選んだ。理由（人）：「DB 接続エラー」は「業務続行不可能なエラー」に分類され基盤に任せる処理で、「業務続行可能なエラー」の場合は後処理を実装できる。記録の案：NorthwindDbSampleSpec の `LLD/Decisions/Common.md` に DEC-CMN-07 として書いた（ワーキング ツリー。コミットは人。索引の件数も 7 に更新）。出どころの欄は、DEC-ORD-10・11 と同じ `OpenTouryoProject/OpenTouryoCodingAgentAssets#17` とした
+- 判断：GO（1。定めない）。2026-11-14 に人が選んだ。理由（人）：「DB 接続エラー」は「業務続行不可能なエラー」に分類され基盤に任せる処理で、「業務続行可能なエラー」の場合は後処理を実装できる。記録：NorthwindDbSampleSpec の `LLD/Decisions/Common.md` に DEC-CMN-07 として記録済み（版 2240ab3。索引の件数も 7）。出どころの欄は、DEC-ORD-10・11 と同じ `OpenTouryoProject/OpenTouryoCodingAgentAssets#17` とした
