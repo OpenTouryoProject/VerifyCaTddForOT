@@ -1,6 +1,6 @@
 # 計画：受注一覧 OrdTf（ケース2：MVC_Sample_Core ＝ net10.0 ASP.NET Core MVC）
 
-テスト仕様：[test3-testfirst-OrdTf-mvc-core-tests.md](../spec/test3-testfirst-OrdTf-mvc-core-tests.md)（NorthwindDbSampleSpec@72e156e）。
+テスト仕様：[test3-testfirst-OrdTf-mvc-core-tests.md](../spec/test3-testfirst-OrdTf-mvc-core-tests.md)（NorthwindDbSampleSpec@2240ab3）。
 B層 57 件（`Shared\WSServer_sample.Tests\`。`MVC_Sample_Core\MVC_Sample.Tests` で net10.0 で流す）と E2E 19 件（`MVC_Sample_Core\MVC_Sample.E2ETests\`）を通す。**テストは変えない。**
 B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース1 で作成済み。このケースでは作らない・触らない。**
 ケース1 の計画：[test3-testfirst-OrdTf-mvc.md](./test3-testfirst-OrdTf-mvc.md)（設計事項はそれと同じで、下は Core の違いだけを書く）。
@@ -13,7 +13,7 @@ B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース
 | --- | --- |
 | レイヤ分割 | P層（`OrdTfController`）→ B層 `new OrdTfBusiness().DoBusinessLogicAsync(pv, ReadCommitted)`（Web の既定＝直呼び。Core は非同期版。サンプルの `Crud1Controller` と同じ）。P層から D層は呼ばない |
 | トランザクション・データアクセス | 読み取りだけ・B層のみ（ケース1 で作成済み）。分離レベルは B層のテストと同じ `ReadCommitted` |
-| 例外・エラー | 検証違反は B層が `ErrorFlag = true`・`ErrorMessage`・`ErrorFields` で返す。P層は `catch` しない（`opentouryo-exception`）。表示先：形式違反は項目直下、関連チェックは共通メッセージ領域（`DEC-CMN-04`・`05`） |
+| 例外・エラー | 検証違反は B層が `ErrorFlag = true`・`ErrorMessage`・`ErrorFields` で返す。P層は `catch` しない（`opentouryo-exception`）。表示先：形式違反は項目直下、関連チェックは共通メッセージ領域（`DEC-CMN-04`・`05`）。DB の失敗は基盤任せ（`ERR-DB` は `DEC-CMN-07`：定めない） |
 | 状態管理（一覧状態の保持） | P層が hidden で持つ（最後に実行した検索の条件 5 つ＋現在ページ＋総ページ数）。Session は使わない（ケース1 と同じ実装の決定）。`DEC-ORD-03`：検証エラーでは更新しない。`DEC-ORD-04`：ページ移動は hidden の条件を使う |
 | 画面設計 | `_Layout.cshtml` の `#contents` の中に `@RenderSection("FooterButtonsSection", required: false)`。画面が 5 つのメインボタンを `<button form="OrdTfForm">` で置く |
 | 認証・CSRF | `[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]`。POST は `[ValidateAntiForgeryToken]`（`Html.BeginForm` が token を出す） |

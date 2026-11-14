@@ -14,3 +14,8 @@
 - 影響するケース：なし（2・3 が選ばれたら B層 3.6 に TestCase を足す）。他のケース（MVC_Sample_Core・WebForms_Sample）にも同じ問いが出る。
 - 記録先：仕様の決定記録（`LLD/Decisions/Orders.md`）
 - 判断：GO（1。定めない）。2026-11-13 に人が選んだ。記録の案：NorthwindDbSampleSpec の `LLD/Decisions/Orders.md` に DEC-ORD-10 として書き、コミット済み（NorthwindDbSampleSpec@72e156e）
+
+## 仕様の更新（NorthwindDbSampleSpec@2240ab3）
+
+- DEC-CMN-07（ERR-DB：定めない）がこのケースにも効くため、テスト仕様・計画の根拠を直した（NorthwindDbSampleSpec@2240ab3。期待・ケース・テスト・コードは変えていない）。
+- 時間（2026-11-14。司令役の記録）：開始 18:55 → 直し 18:56 → レビュー役 1 回目 18:57〜（約 2 分 14 秒）で差し戻し（中 2・低 1）→ 直し → 2 回目 18:59〜で承認 → 終わり 19:00。人の判断の待ち：なし（質問を出していない）。

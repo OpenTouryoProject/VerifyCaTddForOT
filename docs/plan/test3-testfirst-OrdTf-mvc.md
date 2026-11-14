@@ -1,6 +1,6 @@
 # 計画：受注一覧 OrdTf（ケース1：MVC_Sample ＝ net48 ASP.NET MVC）
 
-テスト仕様：[test3-testfirst-OrdTf-mvc-tests.md](../spec/test3-testfirst-OrdTf-mvc-tests.md)（NorthwindDbSampleSpec@72e156e）。
+テスト仕様：[test3-testfirst-OrdTf-mvc-tests.md](../spec/test3-testfirst-OrdTf-mvc-tests.md)（NorthwindDbSampleSpec@2240ab3）。
 B層 56 件（`Shared\WSServer_sample.Tests\`）と E2E 19 件（`MVC_Sample.E2ETests\`）を通す。**テストは変えない。**
 
 ## 使うスキル
@@ -15,7 +15,7 @@ B層 56 件（`Shared\WSServer_sample.Tests\`）と E2E 19 件（`MVC_Sample.E2E
 | トランザクション | 読み取りだけ。分離レベルは `ReadCommitted`（テストと P層で同じ値）。更新は無い |
 | データアクセス | CmnDao ＋ SQL 定義ファイル（`resource\Sql\OrdTf*.sql / .xml`）。条件の有無で SQL の形が変わるので検索だけ動的（`.xml`）、選択肢は静的（`.sql`）。値は `@パラメタ`（`SetUserParameter` は使わない） |
 | 一覧ページ制御 | SQL の `OFFSET … FETCH NEXT 20 ROWS ONLY`（アプリでページを切らない）。総件数は別の `COUNT(*)`（同じ条件） |
-| 例外・エラー | 検証違反は `BusinessApplicationException`（文言は仕様どおり。メッセージ ID は実装で決める＝`DEC-CMN-01`：`ORDTF001`・`ORDTF002`）。DB の失敗は基盤任せ（`ERR-DB` は範囲外） |
+| 例外・エラー | 検証違反は `BusinessApplicationException`（文言は仕様どおり。メッセージ ID は実装で決める＝`DEC-CMN-01`：`ORDTF001`・`ORDTF002`）。DB の失敗は基盤任せ（`ERR-DB` は `DEC-CMN-07`：定めない） |
 | 状態管理（一覧状態の保持） | **P層が hidden で持つ**（最後に実行した検索の条件 5 つ＋現在ページ。実装の決定）。Session は使わない（タブごとに独立し、Session タイムアウトの影響が無い）。`DEC-ORD-04`：ページ移動は hidden の条件を使う。`DEC-ORD-03`：検証エラーでは hidden を更新しない |
 | 画面設計 | `_Layout.cshtml` に `@RenderSection("FooterButtonsSection", required: false)`（コンテンツ フッタ部）を足し、画面が 5 つのメインボタンを `<button form="OrdTfForm">` で置く。`@section` は `<form>` の外に描画されるため `form` 属性で紐付ける（`cmn-framework.md`） |
 | 入力チェック | 日付の形式・前後関係は B層（`3.6`）。P層は入力をそのまま渡す。違反の表示先：形式は項目直下、関連チェックは共通メッセージ領域（`DEC-CMN-04`・`DEC-CMN-05`） |
