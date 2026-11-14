@@ -248,6 +248,7 @@
     <Content Include="Aspx\start\login.aspx" />
     <Content Include="Aspx\start\logout.aspx" />
     <Content Include="Aspx\start\menu.aspx" />
+    <Content Include="Aspx\OrdTf\OrdTf.aspx" />
     <Content Include="Aspx\testFxLayerP\nest\testNestMasterScreen.aspx" />
     <Content Include="Aspx\testFxLayerP\nest\testScreen1nest.aspx" />
     <Content Include="Aspx\testFxLayerP\nest\testScreen2nest.aspx" />
@@ -308,6 +309,7 @@
     <Content Include="Index.html" />
     <Content Include="Scripts\app\Site.js" />
     <Content Include="Aspx\Common\Master\sampleScreen.master" />
+    <Content Include="Aspx\Common\Master\footerScreen.master" />
     <Content Include="Aspx\Common\Master\testAspNetAjaxExtension_Separate.master" />
     <Content Include="Aspx\Common\Master\testAspNetAjaxExtension_Single.master" />
     <Content Include="Aspx\Common\Master\testBlankScreen.master" />
@@ -404,6 +406,20 @@
     </Compile>
     <Compile Include="Aspx\Common\ErrorScreen.aspx.designer.cs">
       <DependentUpon>ErrorScreen.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Aspx\Common\Master\footerScreen.master.cs">
+      <DependentUpon>footerScreen.master</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Aspx\Common\Master\footerScreen.master.designer.cs">
+      <DependentUpon>footerScreen.master</DependentUpon>
+    </Compile>
+    <Compile Include="Aspx\OrdTf\OrdTf.aspx.cs">
+      <DependentUpon>OrdTf.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Aspx\OrdTf\OrdTf.aspx.designer.cs">
+      <DependentUpon>OrdTf.aspx</DependentUpon>
     </Compile>
     <Compile Include="Aspx\Common\Master\sampleScreen.master.cs">
       <DependentUpon>sampleScreen.master</DependentUpon>

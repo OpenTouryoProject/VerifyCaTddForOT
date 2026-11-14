@@ -1,0 +1,136 @@
+﻿<%@ Master Language="C#" AutoEventWireup="true" Inherits="WebForms_Sample.Aspx.Common.Master.footerScreen" Codebehind="footerScreen.master.cs" %>
+<%@ Register Assembly="OpenTouryo.CustomControl" Namespace="Touryo.Infrastructure.CustomControl" TagPrefix="cc1" %>
+
+<!DOCTYPE html>
+<html>
+<head id="Head1" runat="server">
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>無題のページ</title>
+    <asp:PlaceHolder runat="server">
+        <%: Scripts.Render("~/bundles/modernizr") %>
+    </asp:PlaceHolder>
+
+    <webopt:bundlereference runat="server" path="~/bundles/css" />
+
+    <!-- Resolve URL in the javascript-->
+    <script type="text/javascript">
+        var baseUrl = "<%= this.ResolveUrl("~/") %>";
+    </script>
+
+    <!-- IE8をIE7互換モードで動作させる -->
+    <!--meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" /-->
+
+    <asp:ContentPlaceHolder ID="cphHeaderScripts" runat="server">
+        This is header area for define the scripts. -- Override on Page.
+    </asp:ContentPlaceHolder>
+</head>
+<!--FxCode：add-js-event-->
+<body onload="Fx_Document_OnLoad();Fx_AdjustStyle();" onunload="Fx_Document_OnClose();">
+
+    <div class="page-header row">
+        <div class="col-10" style="padding: 0">
+            <div id="header-logo"><a href="<%= this.ResolveClientUrl("~/Aspx/Start/menu.aspx") %>"><img alt="logo" src="<%= this.ResolveClientUrl("~/images/touryo/logo.png") %>" /></a></div>
+            <div id="header-title">
+                <span>You has signed-in as "<%= this.UserName %>".</span>
+                <span class="test">scroll value</span>
+            </div>
+        </div>
+        <div id="header-button" class="col-2">
+            <button type="button" class="btn btn-info float-right" onclick="window.location.href = '<%= this.ResolveClientUrl("~/Aspx/Start/logout.aspx") %>';">Sign-out</button>
+        </div>
+    </div>
+
+    <div id="body-bk">
+        <div id="body" class="row">
+            <div class="nav-side-menu col-sm-4 col-md-3">
+                <div class="brand">メニュー</div>
+                <i class="fa fa-bars fa-2x toggle-btn" data-toggle="collapse" data-target="#menu-content"></i>
+                <div class="menu-list">
+                    <ul id="menu-content"><!-- class="menu-content collapse out" -->
+                        <li onclick="window.location.href = '<%= this.ResolveClientUrl("~/Aspx/Start/menu.aspx") %>';">
+                            <i class="fa fa-arrow-circle-right"></i> メニュートップ
+                        </li>
+                        <li onclick="window.location.href = '<%= this.ResolveClientUrl("~/Aspx/OrdTf/OrdTf.aspx") %>';">
+                            <i class="fa fa-arrow-circle-right"></i> 受注一覧
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div id="contents" class="col-sm-8 col-md-9">
+                <!-- auto completeを指定 -->
+                <form id="form1" runat="server" autocomplete="on" defaultbutton="btnMain1">
+
+                    <asp:ScriptManager EnableCdn="true" runat="server">
+                        <Scripts>
+                            <%--ScriptManager のバンドル スクリプトの詳細については、http://go.microsoft.com/fwlink/?LinkID=301884 を参照してください --%>
+                            <%--Framework スクリプト--%>
+                            <asp:ScriptReference Name="MsAjaxBundle" />
+                            <asp:ScriptReference Name="jquery" />
+                            <asp:ScriptReference Name="WebForms.js" Assembly="System.Web" Path="~/Scripts/WebForms/WebForms.js" />
+                            <asp:ScriptReference Name="WebUIValidation.js" Assembly="System.Web" Path="~/Scripts/WebForms/WebUIValidation.js" />
+                            <asp:ScriptReference Name="MenuStandards.js" Assembly="System.Web" Path="~/Scripts/WebForms/MenuStandards.js" />
+                            <asp:ScriptReference Name="GridView.js" Assembly="System.Web" Path="~/Scripts/WebForms/GridView.js" />
+                            <asp:ScriptReference Name="DetailsView.js" Assembly="System.Web" Path="~/Scripts/WebForms/DetailsView.js" />
+                            <asp:ScriptReference Name="TreeView.js" Assembly="System.Web" Path="~/Scripts/WebForms/TreeView.js" />
+                            <asp:ScriptReference Name="WebParts.js" Assembly="System.Web" Path="~/Scripts/WebForms/WebParts.js" />
+                            <asp:ScriptReference Name="Focus.js" Assembly="System.Web" Path="~/Scripts/WebForms/Focus.js" />
+                            <asp:ScriptReference Name="WebFormsBundle" />
+                            <%--サイト スクリプト--%>
+                        </Scripts>
+                    </asp:ScriptManager>
+
+                    <!-- Contents（個別）。画面ごとの入力・一覧・メッセージ領域を置く -->
+                    <asp:contentplaceholder id="ContentPlaceHolder_A" runat="Server">
+                        This is Default Content -- Override on Page
+                    </asp:contentplaceholder>
+
+                    <hr />
+
+                    <!-- フッタ部のメインボタン（5 つ）。機能トランザクションを起動するボタン（検索・登録・更新・削除など）を置く。
+                         キャプション・活性は、ここでは決めず（既定は「－」・非活性）、各画面のコードビハインドの初期処理で決める
+                         （マスタの Page_Load はコンテンツの UOC_FormInit より後に走り、上書きしてしまうため、ここで初期化しない）。
+                         id は ClientIDMode="Static" でそのまま出す（E2E のテストが #btnMain1〜#btnMain5 で見る） -->
+                    <div id="footer-buttons">
+                        <cc1:WebCustomButton ID="btnMain1" ClientIDMode="Static" runat="server" Text="－" Enabled="false" CssClass="btn btn-primary" />
+                        <cc1:WebCustomButton ID="btnMain2" ClientIDMode="Static" runat="server" Text="－" Enabled="false" CssClass="btn btn-secondary" />
+                        <cc1:WebCustomButton ID="btnMain3" ClientIDMode="Static" runat="server" Text="－" Enabled="false" CssClass="btn btn-secondary" />
+                        <cc1:WebCustomButton ID="btnMain4" ClientIDMode="Static" runat="server" Text="－" Enabled="false" CssClass="btn btn-secondary" />
+                        <cc1:WebCustomButton ID="btnMain5" ClientIDMode="Static" runat="server" Text="－" Enabled="false" CssClass="btn btn-secondary" />
+                    </div>
+
+                    <!--FxCode：add-start-->
+                    <asp:HiddenField ID="ChildScreenType" runat="server" Value="0" />
+                    <asp:HiddenField ID="ChildScreenUrl" runat="server" Value="0" />
+                    <asp:HiddenField ID="CloseFlag" runat="server" Value="0" />
+                    <asp:HiddenField ID="SubmitFlag" runat="server" Value="0" />
+                    <asp:HiddenField ID="ScreenGuid" runat="server" Value="0" />
+                    <asp:HiddenField ID="FxDialogStyle" runat="server" Value="0" />
+                    <asp:HiddenField ID="BusinessDialogStyle" runat="server" Value="0" />
+                    <asp:HiddenField ID="NormalScreenStyle" runat="server" Value="0" />
+                    <asp:HiddenField ID="NormalScreenTarget" runat="server" Value="0" />
+                    <asp:HiddenField ID="DialogFrameUrl" runat="server" Value="0" />
+                    <asp:HiddenField ID="WindowGuid" runat="server" Value="0" />
+                    <asp:HiddenField ID="RequestTicketGuid" runat="server" Value="0" />
+                    <!--FxCode：add-end-->
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p class="text-muted">Powered by <a target="_blank" href="https://github.com/OpenTouryoProject">OpenTouryo</a></p>
+        </div>
+    </footer>
+
+    <%: Scripts.Render("~/bundles/touryo") %>
+    <%: Scripts.Render("~/bundles/app") %>
+
+    <asp:ContentPlaceHolder ID="cphFooterScripts" runat="server">
+        This is footer area for define the scripts. -- Override on Page.
+    </asp:ContentPlaceHolder>
+
+</body>
+</html>

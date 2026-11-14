@@ -9,6 +9,11 @@
     サンプル プログラム<br />
     -------------------------<br />
     <ul>
+        <li>受注一覧（テスト先行）
+            <ul>
+                <li><a href="<%= this.ResolveUrl("~/Aspx/OrdTf/OrdTf.aspx") %>">受注一覧</a></li>
+            </ul>
+        </li>
         <li>サンプル（全層結合テスト）
             <ul>
                 <li><a href="<%= this.ResolveUrl("~/Aspx/Sample/Crud/sampleScreen.aspx") %>">ノーマル</a></li>
