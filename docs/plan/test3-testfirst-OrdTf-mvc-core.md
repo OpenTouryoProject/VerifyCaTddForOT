@@ -1,8 +1,8 @@
 # 計画：受注一覧 OrdTf（ケース2：MVC_Sample_Core ＝ net10.0 ASP.NET Core MVC）
 
-テスト仕様：[test3-testfirst-OrdTf-mvc-core-tests.md](../spec/test3-testfirst-OrdTf-mvc-core-tests.md)（NorthwindDbSampleSpec@2240ab3）。
-B層 57 件（`Shared\WSServer_sample.Tests\`。`MVC_Sample_Core\MVC_Sample.Tests` で net10.0 で流す）と E2E 19 件（`MVC_Sample_Core\MVC_Sample.E2ETests\`）を通す。**テストは変えない。**
-B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース1 で作成済み。このケースでは作らない・触らない。**
+テスト仕様：[test3-testfirst-OrdTf-mvc-core-tests.md](../spec/test3-testfirst-OrdTf-mvc-core-tests.md)（NorthwindDbSampleSpec@d65135e）。
+B層 82 件（`Shared\WSServer_sample.Tests\`。`MVC_Sample_Core\MVC_Sample.Tests` で net10.0、`MVC_Sample\MVC_Sample.Tests` で net48 で流す）と E2E 36 件（`MVC_Sample_Core\MVC_Sample.E2ETests\`）を通す。**テストは変えない。**
+B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース1 で作成済み。1〜7 章の範囲（EV-ORD-101・102・104）では作らない・触らない。** `EV-ORD-105`（一覧の並べ替え。テスト仕様 8 章）は、B層に不足があるため、下の「EV-ORD-105（一覧の並べ替え）」で B層（`Shared\`）も足す。
 ケース1 の計画：[test3-testfirst-OrdTf-mvc.md](./test3-testfirst-OrdTf-mvc.md)（設計事項はそれと同じで、下は Core の違いだけを書く）。
 
 ## 使うスキル
@@ -40,3 +40,45 @@ B層（`OrdTfBusiness`・SQL 定義・引数/戻り値クラス）は**ケース
 3. E2E 19 件を通す（`dotnet test MVC_Sample_Core\MVC_Sample.E2ETests`。アプリは空きポートで起動）。
 4. B層 57 件（net10.0）。続けて、**net48 の B層テストを net10.0 の後に（同時にでなく）流して**、Shared を共用しても通ることを確かめる。
 5. 後始末の確認（アプリのプロセス・DB のテスト データ）。
+
+## EV-ORD-105（一覧の並べ替え。テスト仕様 8 章）
+
+### 使うスキル
+`opentouryo-app-design`・`opentouryo-layer-p-mvc`・`opentouryo-layer-b`・`opentouryo-query-definition`（ORDER BY の動的化）・`opentouryo-p-call-business`・`opentouryo-exception`・`opentouryo-comment-convention`（ヘッダ・BOM）。
+
+### 設計事項（`opentouryo-app-design`）
+| 設計事項 | 決め |
+| --- | --- |
+| レイヤ分割 | P層（`OrdTfController.Sort`）が列・方向を決め、B層 `OrdTfSearch` へ `SortColumn`・`SortDescending` で渡す。B層は状態を持たず、毎回「列・方向・ページ・抽出条件」を受けて返す。並びの決定（ORDER BY）は SQL 定義。P層から D層は呼ばない |
+| トランザクション・データアクセス | 読み取りだけ（`ReadCommitted`）。トランザクション境界は変わらない |
+| 例外・エラー | 並べ替えは検証が無い（`EV-ORD-105` 検証内容：なし）。`ERR-DB` は `DEC-CMN-07`（定めない） |
+| 状態管理 | 並べ替えの列・方向は hidden（`PSortColumn`・`PSortDescending`）で持つ。Session は使わない（検索条件・ページと同じ）。**Core の `ModelState` は `Display` で消す**（消さないと hidden が前の値のまま出る） |
+| 画面設計 | 並べ替え可の 7 列の `th` にボタンを 1 つ（`#sort` + 列のキー）。合計金額・状況の `th` には何も置かない。現在の並べ替え列・方向は `th` に `aria-sort` を付け、CSS（`::after`）で ▲▼ を見せる（`th` のテキストには入れない。`DEC-ORD-16`）。**見出しをまだ押していない（保持された並べ替えが無い）既定の並びのときは、受注日に ▼（降順）を出す**（`EV-ORD-101` 手順 3。表示だけの扱いで、hidden の `PSortColumn` とコントローラの反転の判定は変えない）。見出しのボタンには `form="OrdTfForm"` を付ける（テスト仕様 8.3） |
+| 認証・CSRF | `Sort` は `[HttpPost]`・`[ValidateAntiForgeryToken]`（`Html.BeginForm` の token）。`Authorize` はコントローラ全体のまま |
+| 国際化・書式 | 変更なし |
+
+### 実装の決定（テスト仕様 8.1・8.3 のとおり。振る舞いは変えない）
+1. **許可リストの ORDER BY**：`resource\Sql\OrdTfSearch.xml` の ORDER BY を `<SELECT name="SortKey">` の `CASE`（`<列>_ASC` / `<列>_DESC` の 14 値）で切り替える。列名は文字列で連結しない。`DEFAULT` は既定の並び（受注日の日付の降順、同日は受注 ID の降順）。
+2. **許可リスト外のキーは既定の並びで返す**（どの `CASE` にも一致せず `DEFAULT`）。仕様の決定ではなく実装の決定で、ケースは作らない（テスト仕様 8.1）。
+3. **`SortKey` は必ず設定する**：`SELECT` タグはパラメタが未設定だと何も出力しない（`DEFAULT` も出ない＝ORDER BY が空になり OFFSET が構文エラー）。列が空のときは、どの `CASE` にも一致しない値（`Default`）を設定する。
+4. **最後の並べ替えキーは受注 ID**（降順）。並べ替えの列に同じ値が続いても、ページが重ならず抜けないため（`DEC-ORD-12`：同じ値の並びは定めない）。日付の列は日付の単位（`CAST(... AS date)`。`DEC-ORD-14`）。担当者名は `LastName`・`FirstName` の順で同じ方向（`DEC-ORD-15`）。
+5. **SQL 定義の中にコメント（`--`）を書かない**：動的 SQL の組み立てで改行が詰められ、コメントが後ろの文を巻き込んで構文エラーになる（実測。ファイル先頭の 1 行コメントだけは SELECT の前なので無事）。説明は C# のコメントと本計画に書く。
+6. **P層：`Sort` アクション**：`sort` が 7 つのキーのどれかなら、`PSortColumn` と同じなら方向を反転、違えば当該列の昇順、ページを 1 に戻す。保持された検索条件（`P*`）で検索し直す（入力欄だけ変えても最後に検索した条件。`DEC-ORD-04`）。7 つ以外のキーは何もせず、保持した状態のまま取り直す（ボタンが無いので来ない）。`Search`・`Move`・`Index` は保持した並べ替えをそのまま B層へ渡す（検索・ページ切替でも維持。`Index` は空＝既定）。検証エラー（`DEC-ORD-03`）の「直前の一覧」も、保持した並べ替えで取り直す。
+7. **0 件**：並べ替えでも `ShowList` が「該当するデータがありません。」（情報）を出す（`DEC-ORD-17`）。
+
+### ケース1・ケース3 への影響（変えない）
+- `Shared\` の B層は共用。**`SortColumn` が空（既定値 null）のときの振る舞い＝既定の並びは変えない**（`SortKey = "Default"` で `DEFAULT`＝従来と同じ ORDER BY）。ケース1（net48 MVC）・ケース3（WebForms）は `SortColumn` を設定しないので、従来どおり。
+- 確かめ：B層のテストを net10.0 → net48 の順に 82 件全件流す（既存の 57 件が通ること）。
+
+### 対象ファイル
+- B層（`Shared\`・`resource\`）：`Shared\Business\OrdTfBusiness.cs`（`SortKey` の設定）・`resource\Sql\OrdTfSearch.xml`（ORDER BY の `SELECT`/`CASE`）・`Shared\IfType\OrdTfParameterValue.cs`（段 2 で追加済み）。`OrdTfCount.xml` は変えない。
+- P層（`MVC_Sample_Core\MVC_Sample\`）：`Controllers\OrdTfController.cs`（`Sort`・保持した並べ替えを渡す）・`Models\ViewModels\OrdTfViewModel.cs`（`PSortColumn`・`PSortDescending`）・`Views\OrdTf\Index.cshtml`（見出しのボタン・hidden・`aria-sort`・CSS）。
+
+### 手順
+1. 計画（本節）。
+2. B層：SQL 定義 → `OrdTfBusiness`。B層のテスト（net10.0）で並びのケースを通す。
+3. P層：ViewModel → コントローラ → ビュー。`dotnet build`（Core のビューはビルドでコンパイルされる）。
+4. E2E 36 件（net10.0）。
+5. B層 82 件を net10.0 → net48 の順に（同時にでなく）。
+6. 壊す確かめ（テスト仕様 8.7 の (a)〜(h) と画面の壊し方）。受注 ID を外す壊し方 (d) は、並べ替えが実装された状態で流して記録する。
+7. 後始末（アプリのプロセス・DB のテスト データ）。

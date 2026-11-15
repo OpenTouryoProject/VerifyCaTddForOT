@@ -14,6 +14,7 @@
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。戻り値を設定するだけの空の UOC）
 //*  2026/11/13  実装役            実装（Green）：EV-ORD-101 の選択肢、EV-ORD-102・EV-ORD-104 の検索・ページ
+//*  2026/11/15  実装役            EV-ORD-105 の並べ替え（SortColumn・SortDescending を SQL 定義の ORDER BY へ）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -144,6 +145,13 @@ namespace WSServer_sample.Business
             dao.SQLFileName = "OrdTfSearch.xml";
             SetConditions(dao, pv, from, to, status, today);
             dao.SetParameter("Offset", (pageNo - 1) * PageSize);
+            // 並べ替え（EV-ORD-105）。列が空なら SQL 定義の既定の並び（受注日の降順、同日は受注 ID の降順）。
+            // 値は SQL 定義の許可リスト（SELECT/CASE）で照合され、列名は連結されない。許可リスト外は既定の並びになる（DEFAULT）。
+            // 最後の並べ替えキーは受注 ID（同じ値が続いてもページが重ならず抜けないため。DEC-ORD-12）。日付は日付の単位（DEC-ORD-14）。
+            // SELECT タグはパラメタが未設定だと何も出力しない（DEFAULT も出ない）ので、列が空のときも必ず設定する（どの CASE にも一致しない値）。
+            dao.SetParameter("SortKey", string.IsNullOrEmpty(pv.SortColumn)
+                ? "Default"
+                : pv.SortColumn + (pv.SortDescending ? "_DESC" : "_ASC"));
             DataTable dt = new DataTable();
             dao.ExecSelectFill_DT(dt);
 
