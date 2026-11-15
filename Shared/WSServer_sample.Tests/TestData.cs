@@ -95,10 +95,10 @@ namespace WSServer_sample.Tests
         /// <summary>名の目印付きで作る名前（名は nvarchar(10) に収める）</summary>
         public static string NewFirstName(char mark) { return mark.ToString() + Guid4(); }
 
-        /// <summary>配送業者を入れる。ShipperID を返す</summary>
-        public int NewShipper(string name = null)
+        /// <summary>配送業者を入れる。ShipperID を返す（mark 指定時の会社名は "TfSh" + 目印 + GUID 7 桁。並べ替えのケース用）</summary>
+        public int NewShipper(string name = null, char? mark = null)
         {
-            if (name == null) name = "TfSh" + Guid8();
+            if (name == null) name = mark.HasValue ? "TfSh" + mark.Value + Guid.NewGuid().ToString("N").Substring(0, 7) : "TfSh" + Guid8();
             int id = Convert.ToInt32(ExecScalar(
                 "INSERT INTO Shippers (CompanyName) VALUES (@n); SELECT CAST(SCOPE_IDENTITY() AS int);",
                 P("@n", SqlDbType.NVarChar, name)));

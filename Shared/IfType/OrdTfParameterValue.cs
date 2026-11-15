@@ -13,6 +13,7 @@
 //*  日時        更新者            内容
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。契約はテスト仕様 1.2）
+//*  2026/11/15  実装役            並べ替えのメンバ（SortColumn・SortDescending）を追加（EV-ORD-105。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -43,6 +44,15 @@ namespace WSIFType_sample
 
         /// <summary>表示するページ（1 始まり）</summary>
         public int PageNo;
+
+        /// <summary>
+        /// 並べ替える列のキー（OrderID・CustomerName・EmployeeName・OrderDate・RequiredDate・ShippedDate・ShipperName）。
+        /// null・空文字は既定の並び（EV-ORD-105。テスト仕様 8.1）
+        /// </summary>
+        public string SortColumn;
+
+        /// <summary>true = 降順、false = 昇順（SortColumn が空のときは無視する）</summary>
+        public bool SortDescending;
 
         /// <summary>コンストラクタ</summary>
         public OrdTfParameterValue(string screenId, string controlId, string methodName, string actionType, MyUserInfo user)

@@ -545,5 +545,337 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#totalCount")).ToHaveTextAsync("全 15 件");
             await ExpectPagerAsync(false, false, false, false);
         }
+
+        // ================================================================ 並べ替え（EV-ORD-105。テスト仕様 8.4）
+
+        private static readonly DateTime SMid = new DateTime(2198, 3, 10);
+        private static readonly DateTime SHigh = new DateTime(2198, 3, 20);
+        private static readonly DateTime SLow = new DateTime(2198, 3, 5);
+        private static readonly DateTime SBase = new DateTime(2198, 3, 1);
+
+        /// <summary>並べ替えの見出しの操作を押す（#sort + 列のキー）。画面に無ければ Expect で落ちる</summary>
+        private async Task SortAsync(string column)
+        {
+            await ClickAsync("#sort" + column);
+        }
+
+        /// <summary>画面の更新（ポストバック）が終わるまで待つ。「変わらないこと」を確かめる前に使う</summary>
+        private async Task SettleAsync()
+        {
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        }
+
+        private sealed class SortData
+        {
+            public string K;     // 選ぶ顧客（null なら選ばない）
+            public int? E;       // 選ぶ担当者（顧客名の列だけ）
+            public int O1, O2, O3;
+        }
+
+        /// <summary>列ごとのデータ：o1 = 中、o2 = 高、o3 = 低（受注 ID の列だけ値が登録順）。ほかの列は同じ値（受注日 2198/03/01）</summary>
+        private SortData MakeSortData(string column)
+        {
+            SortData d = new SortData();
+            if (column == "CustomerName")
+            {
+                int e = data.NewEmployee(TestData.NewLastName('E'), TestData.NewFirstName('E'));
+                string kM = data.NewCustomer('M');
+                string kX = data.NewCustomer('X');
+                string kC = data.NewCustomer('C');
+                d.E = e;
+                d.O1 = data.NewOrder(customerId: kM, employeeId: e, orderDate: SBase);
+                d.O2 = data.NewOrder(customerId: kX, employeeId: e, orderDate: SBase);
+                d.O3 = data.NewOrder(customerId: kC, employeeId: e, orderDate: SBase);
+                return d;
+            }
+
+            string k = data.NewCustomer('K');
+            d.K = k;
+            switch (column)
+            {
+                case "EmployeeName":
+                    int eM = data.NewEmployee(TestData.NewLastName('M'), TestData.NewFirstName('M'));
+                    int eX = data.NewEmployee(TestData.NewLastName('X'), TestData.NewFirstName('X'));
+                    int eC = data.NewEmployee(TestData.NewLastName('C'), TestData.NewFirstName('C'));
+                    d.O1 = data.NewOrder(customerId: k, employeeId: eM, orderDate: SBase);
+                    d.O2 = data.NewOrder(customerId: k, employeeId: eX, orderDate: SBase);
+                    d.O3 = data.NewOrder(customerId: k, employeeId: eC, orderDate: SBase);
+                    break;
+                case "OrderDate":
+                    d.O1 = data.NewOrder(customerId: k, orderDate: SMid);
+                    d.O2 = data.NewOrder(customerId: k, orderDate: SHigh);
+                    d.O3 = data.NewOrder(customerId: k, orderDate: SLow);
+                    break;
+                case "RequiredDate":
+                    d.O1 = data.NewOrder(customerId: k, orderDate: SBase, requiredDate: SMid);
+                    d.O2 = data.NewOrder(customerId: k, orderDate: SBase, requiredDate: SHigh);
+                    d.O3 = data.NewOrder(customerId: k, orderDate: SBase, requiredDate: SLow);
+                    break;
+                case "ShippedDate":
+                    d.O1 = data.NewOrder(customerId: k, orderDate: SBase, shippedDate: SMid);
+                    d.O2 = data.NewOrder(customerId: k, orderDate: SBase, shippedDate: SHigh);
+                    d.O3 = data.NewOrder(customerId: k, orderDate: SBase, shippedDate: SLow);
+                    break;
+                case "ShipperName":
+                    int sM = data.NewShipper(mark: 'M');
+                    int sX = data.NewShipper(mark: 'X');
+                    int sC = data.NewShipper(mark: 'C');
+                    d.O1 = data.NewOrder(customerId: k, orderDate: SBase, shipVia: sM);
+                    d.O2 = data.NewOrder(customerId: k, orderDate: SBase, shipVia: sX);
+                    d.O3 = data.NewOrder(customerId: k, orderDate: SBase, shipVia: sC);
+                    break;
+                default:   // OrderID
+                    d.O1 = data.NewOrder(customerId: k, orderDate: SBase);
+                    d.O2 = data.NewOrder(customerId: k, orderDate: SBase);
+                    d.O3 = data.NewOrder(customerId: k, orderDate: SBase);
+                    break;
+            }
+            return d;
+        }
+
+        /// <summary>顧客（顧客名の列だけ担当者）を選んで検索する</summary>
+        private async Task OpenAndSearchAsync(SortData d)
+        {
+            if (d.E.HasValue)
+            {
+                await OpenAsync();
+                await SelectAsync("#EmployeeID", d.E.Value.ToString());
+                await SearchAsync();
+            }
+            else
+            {
+                await OpenAndSearchAsync(d.K);
+            }
+        }
+
+        private static List<int> Asc(string column, SortData d)
+        {
+            // 受注 ID の列だけ値が登録順
+            return column == "OrderID"
+                ? new List<int> { d.O1, d.O2, d.O3 }
+                : new List<int> { d.O3, d.O1, d.O2 };
+        }
+
+        private static List<int> Desc(string column, SortData d)
+        {
+            List<int> r = Asc(column, d);
+            r.Reverse();
+            return r;
+        }
+
+        private async Task ExpectSortedListAsync(List<int> ids)
+        {
+            await ExpectListAsync(ids);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 3 件");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 1 ページ");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+        }
+
+        /// <summary>i 番目（1 から）の受注を i の昇順で fromI から toI まで</summary>
+        private static List<int> AscRange(List<int> ids, int fromI, int toI)
+        {
+            List<int> r = new List<int>();
+            for (int i = fromI; i <= toI; i++) r.Add(ids[i - 1]);
+            return r;
+        }
+
+        [TestCase("OrderID")]
+        [TestCase("CustomerName")]
+        [TestCase("EmployeeName")]
+        [TestCase("OrderDate")]
+        [TestCase("RequiredDate")]
+        [TestCase("ShippedDate")]
+        [TestCase("ShipperName")]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public async Task 並べ替え_見出しを選ぶと昇順_もう一度で降順_もう一度で昇順(string column)
+        {
+            SortData d = MakeSortData(column);
+            await OpenAndSearchAsync(d);
+
+            await SortAsync(column);
+            await ExpectSortedListAsync(Asc(column, d));
+
+            await SortAsync(column);
+            await ExpectSortedListAsync(Desc(column, d));
+
+            await SortAsync(column);
+            await ExpectSortedListAsync(Asc(column, d));
+        }
+
+        [TestCase(1)]
+        [TestCase(2)]
+        [Basis("EV-ORD-105")]
+        public async Task 並べ替え_別の列を選ぶと昇順から始まる(int dateClicks)
+        {
+            string k = data.NewCustomer('K');
+            int o1 = data.NewOrder(customerId: k, orderDate: SMid, requiredDate: new DateTime(2198, 4, 5));
+            int o2 = data.NewOrder(customerId: k, orderDate: SHigh, requiredDate: new DateTime(2198, 4, 10));
+            int o3 = data.NewOrder(customerId: k, orderDate: SLow, requiredDate: new DateTime(2198, 4, 20));
+
+            await OpenAndSearchAsync(k);
+            for (int i = 0; i < dateClicks; i++) await SortAsync("OrderDate");
+            await ExpectListAsync(dateClicks == 1 ? new[] { o3, o1, o2 } : new[] { o2, o1, o3 });
+
+            await SortAsync("RequiredDate");
+
+            await ExpectListAsync(new[] { o1, o2, o3 });   // 昇順から始まる
+        }
+
+        [TestCase(7, "合計金額")]
+        [TestCase(8, "状況")]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public async Task 並べ替え_不可の列の見出しは処理しない(int colIndex, string caption)
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+
+            await OpenAndSearchAsync(k);
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+
+            // 構造：並べ替え可の 7 列の th が button を 1 つずつ持ち、不可の 2 列の th は button・a・input を持たない
+            ILocator ths = Loc("#orderList thead th");
+            for (int i = 0; i < 7; i++)
+                await Expect(ths.Nth(i).Locator("button")).ToHaveCountAsync(1);
+            await Expect(ths.Nth(7).Locator("button, a, input")).ToHaveCountAsync(0);
+            await Expect(ths.Nth(8).Locator("button, a, input")).ToHaveCountAsync(0);
+
+            await Expect(ths.Nth(colIndex)).ToHaveTextAsync(caption);
+            await ths.Nth(colIndex).ClickAsync();
+            await SettleAsync();
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+            await Expect(Rows).ToHaveCountAsync(20);
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[24].ToString());   // i = 25（既定の並び）
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+        }
+
+        [Test, Basis("EV-ORD-105")]
+        public async Task 並べ替え_ページは1に戻る()
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+
+            await OpenAndSearchAsync(k);
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+
+            await SortAsync("OrderDate");
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 3 ページ");
+            await Expect(Rows).ToHaveCountAsync(20);
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());    // i = 1（受注日の昇順）
+            await Expect(Cell(19, 0)).ToHaveTextAsync(ids[19].ToString());   // i = 20
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+        }
+
+        [Test, Basis("EV-ORD-105"), Basis("DEC-ORD-04")]
+        public async Task 並べ替え_入力欄だけ変えても最後に検索した条件で並べ替える()
+        {
+            string k = data.NewCustomer('K');
+            string l = data.NewCustomer('L');
+            int o1 = data.NewOrder(customerId: k, orderDate: SMid);
+            int o2 = data.NewOrder(customerId: k, orderDate: SHigh);
+            int o3 = data.NewOrder(customerId: k, orderDate: SLow);
+            data.NewOrder(customerId: l, orderDate: SBase);
+
+            await OpenAndSearchAsync(k);
+            await SelectAsync("#CustomerID", l);   // 検索はしない
+
+            await SortAsync("OrderDate");
+
+            await ExpectListAsync(new[] { o3, o1, o2 });
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 3 件");
+        }
+
+        [Test, Basis("EV-ORD-102"), Basis("EV-ORD-105")]
+        public async Task 並べ替え_検索しても並べ替えは維持される()
+        {
+            string k = data.NewCustomer('K');
+            int o1 = data.NewOrder(customerId: k, orderDate: SMid);
+            int o2 = data.NewOrder(customerId: k, orderDate: SHigh);
+            int o3 = data.NewOrder(customerId: k, orderDate: SLow);
+
+            await OpenAndSearchAsync(k);
+            await SortAsync("OrderDate");
+            await ExpectListAsync(new[] { o3, o1, o2 });
+
+            await SearchAsync();
+            await SettleAsync();
+
+            await ExpectListAsync(new[] { o3, o1, o2 });   // 既定の並び (o2, o1, o3) に戻らない
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 1 ページ");
+        }
+
+        [Test, Basis("EV-ORD-104"), Basis("EV-ORD-105")]
+        public async Task 並べ替え_ページ切替でも維持される()
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+
+            await OpenAndSearchAsync(k);
+            await SortAsync("OrderDate");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 3 ページ");
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());   // i = 1
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+            await Expect(Rows).ToHaveCountAsync(20);
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[20].ToString());   // i = 21
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+
+            await ClickAsync("#btnPageLast");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("3 / 3 ページ");
+            await Expect(Rows).ToHaveCountAsync(5);
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[40].ToString());   // i = 41
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+
+            await ClickAsync("#btnPageFirst");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 3 ページ");
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());   // i = 1
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+        }
+
+        [Test, Basis("EV-ORD-102"), Basis("EV-ORD-104"), Basis("EV-ORD-105"), Basis("DEC-ORD-03")]
+        public async Task 並べ替え_検証エラーの後も並べ替えを維持する()
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+
+            await OpenAndSearchAsync(k);
+            await SortAsync("OrderDate");
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());
+
+            await FillAsync("#OrderDateFrom", "abc");
+            await SearchAsync();
+
+            await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 3 ページ");
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());   // i = 1（昇順のまま）
+
+            await ClickAsync("#btnPageNext");
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[20].ToString());   // i = 21
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+        }
+
+        [Test, Basis("DEC-ORD-17"), Basis("EV-ORD-101"), Basis("EV-ORD-102"), Basis("DEC-ORD-02"), Basis("EV-ORD-105")]
+        public async Task 並べ替え_0件でも該当なしのメッセージを出す()
+        {
+            string k = data.NewCustomer('K');   // 受注の無い顧客
+
+            await OpenAndSearchAsync(k);
+            await SortAsync("OrderDate");
+            await SettleAsync();
+
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(MsgNone);
+            await Expect(Loc("#messageArea")).ToHaveClassAsync(Info);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Danger);
+            await Expect(Rows).ToHaveCountAsync(0);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 0 件");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 1 ページ");
+        }
     }
 }
