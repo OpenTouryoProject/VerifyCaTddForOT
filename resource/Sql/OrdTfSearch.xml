@@ -37,6 +37,22 @@
       </SELECT>
   </WHERE>
   ORDER BY
-    CAST(o.OrderDate AS date) DESC, o.OrderID DESC
+    <SELECT name="SortKey">
+      <CASE value="OrderID_ASC">o.OrderID ASC</CASE>
+      <CASE value="OrderID_DESC">o.OrderID DESC</CASE>
+      <CASE value="CustomerName_ASC">c.CompanyName ASC, o.OrderID DESC</CASE>
+      <CASE value="CustomerName_DESC">c.CompanyName DESC, o.OrderID DESC</CASE>
+      <CASE value="EmployeeName_ASC">e.LastName ASC, e.FirstName ASC, o.OrderID DESC</CASE>
+      <CASE value="EmployeeName_DESC">e.LastName DESC, e.FirstName DESC, o.OrderID DESC</CASE>
+      <CASE value="OrderDate_ASC">CAST(o.OrderDate AS date) ASC, o.OrderID DESC</CASE>
+      <CASE value="OrderDate_DESC">CAST(o.OrderDate AS date) DESC, o.OrderID DESC</CASE>
+      <CASE value="RequiredDate_ASC">CAST(o.RequiredDate AS date) ASC, o.OrderID DESC</CASE>
+      <CASE value="RequiredDate_DESC">CAST(o.RequiredDate AS date) DESC, o.OrderID DESC</CASE>
+      <CASE value="ShippedDate_ASC">CAST(o.ShippedDate AS date) ASC, o.OrderID DESC</CASE>
+      <CASE value="ShippedDate_DESC">CAST(o.ShippedDate AS date) DESC, o.OrderID DESC</CASE>
+      <CASE value="ShipperName_ASC">s.CompanyName ASC, o.OrderID DESC</CASE>
+      <CASE value="ShipperName_DESC">s.CompanyName DESC, o.OrderID DESC</CASE>
+      <DEFAULT>CAST(o.OrderDate AS date) DESC, o.OrderID DESC</DEFAULT>
+    </SELECT>
   OFFSET @Offset ROWS FETCH NEXT 20 ROWS ONLY
 </ROOT>

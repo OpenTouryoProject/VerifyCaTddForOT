@@ -13,6 +13,7 @@
 //*  日時        更新者            内容
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            新規作成（net48 版 MVC_Sample と同じ構成。Core 用に名前空間を直した）
+//*  2026/11/15  実装役            並べ替えの列・方向の保持（PSortColumn・PSortDescending）を追加（EV-ORD-105）
 //**********************************************************************************
 
 using System.Collections.Generic;
@@ -60,6 +61,12 @@ namespace MVC_Sample.Models.ViewModels
 
         /// <summary>保持：出荷状況</summary>
         public string PShippedStatus { get; set; }
+
+        /// <summary>保持：並べ替えの列のキー（空は既定の並び。EV-ORD-105）</summary>
+        public string PSortColumn { get; set; }
+
+        /// <summary>保持：並べ替えの方向（true = 降順）</summary>
+        public bool PSortDescending { get; set; }
 
         /// <summary>保持：現在ページ</summary>
         public int PPageNo { get; set; }

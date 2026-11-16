@@ -14,12 +14,14 @@
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
 //*  2026/11/13  実装役            実装（段 4。EV-ORD-101・102・104）
+//*  2026/11/15  実装役            EV-ORD-105（一覧の並べ替え）を追加（Sort アクション。並べ替えの列・方向を hidden で保持）
 //**********************************************************************************
 
 using WSIFType_sample;
 using WSServer_sample.Business;
 using MVC_Sample.Models.ViewModels;
 
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -44,6 +46,10 @@ namespace MVC_Sample.Controllers
 
         /// <summary>0 件の知らせ（EV-ORD-101 手順 7。エラーとしない）</summary>
         private const string MsgNone = "該当するデータがありません。";
+
+        /// <summary>並べ替えられる列のキー（SC-ORD-01-I06 の列の表の「並べ替え」が「可」の 7 列。B層の許可リストと同じ）</summary>
+        private static readonly string[] SortableColumns =
+            { "OrderID", "CustomerName", "EmployeeName", "OrderDate", "RequiredDate", "ShippedDate", "ShipperName" };
 
         /// <summary>出荷状況の選択肢（固定値。SC-ORD-01-I05）</summary>
         private static readonly string[] StatusValues = { "すべて", "未出荷", "出荷済", "納期遅延" };
@@ -87,14 +93,16 @@ namespace MVC_Sample.Controllers
             await this.BuildChoices(model);
 
             OrdTfReturnValue rv = await this.CallSearch(
-                model.CustomerID, model.EmployeeID, model.OrderDateFrom, model.OrderDateTo, model.ShippedStatus, 1);
+                model.CustomerID, model.EmployeeID, model.OrderDateFrom, model.OrderDateTo, model.ShippedStatus, 1,
+                model.PSortColumn, model.PSortDescending);
 
             if (rv.ErrorFlag)
             {
                 // 検証エラー：入力値は入力のまま。一覧・総件数・ページ情報・保持した一覧状態は更新せず、直前のままにする（DEC-ORD-03）
                 this.ShowError(model, rv);
                 OrdTfReturnValue prev = await this.CallSearch(
-                    model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, model.PPageNo);
+                    model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, model.PPageNo,
+                    model.PSortColumn, model.PSortDescending);
                 this.ShowList(model, prev);
             }
             else
@@ -135,9 +143,50 @@ namespace MVC_Sample.Controllers
 
             // 保持された（最後に実行した検索の）条件で検索する（DEC-ORD-04）。入力欄は入力のまま
             OrdTfReturnValue rv = await this.CallSearch(
-                model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, target);
+                model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, target,
+                model.PSortColumn, model.PSortDescending);
             this.ShowList(model, rv);
             this.RetainPage(model, rv);   // 取り直した総ページ数での最終ページを含む（DEC-ORD-06）
+
+            return this.Display(model);
+        }
+
+        /// <summary>
+        /// 一覧の並べ替え（EV-ORD-105）
+        /// POST: /OrdTf/Sort
+        /// </summary>
+        /// <param name="model">ビュー モデル</param>
+        /// <param name="sort">選ばれた列のキー（並べ替え可の 7 列。見出しのボタンの value）</param>
+        /// <returns>再描画（IActionResult）</returns>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Sort(OrdTfViewModel model, string sort)
+        {
+            await this.BuildChoices(model);
+
+            if (Array.IndexOf(SortableColumns, sort) >= 0)
+            {
+                // 現在の並べ替え列と同じなら方向を反転、異なれば当該列の昇順（手順 1）。ページは 1 に戻す（手順 3）
+                if (sort == model.PSortColumn)
+                {
+                    model.PSortDescending = !model.PSortDescending;
+                }
+                else
+                {
+                    model.PSortColumn = sort;
+                    model.PSortDescending = false;
+                }
+                model.PPageNo = 1;
+            }
+            // 並べ替え対象外の列（合計金額・状況は見出しにボタンが無く、ここへは来ない）は処理しない：
+            // 保持された状態のまま一覧を取り直す（手順 2）
+
+            // 保持された検索条件（最後に実行した検索の条件）と新しい並べ替えで検索し直す（手順 4。入力欄は入力のまま）
+            OrdTfReturnValue rv = await this.CallSearch(
+                model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, model.PPageNo,
+                model.PSortColumn, model.PSortDescending);
+            this.ShowList(model, rv);
+            this.RetainPage(model, rv);
 
             return this.Display(model);
         }
@@ -175,7 +224,7 @@ namespace MVC_Sample.Controllers
 
         /// <summary>B層（OrdTfSearch）を呼ぶ</summary>
         private async Task<OrdTfReturnValue> CallSearch(string customerId, string employeeId,
-            string from, string to, string status, int pageNo)
+            string from, string to, string status, int pageNo, string sortColumn, bool sortDescending)
         {
             OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfSearch", "SQL", this.UserInfo);
             pv.CustomerID = customerId;
@@ -185,6 +234,8 @@ namespace MVC_Sample.Controllers
             pv.OrderDateTo = to;
             pv.ShippedStatus = status;
             pv.PageNo = pageNo;
+            pv.SortColumn = sortColumn;
+            pv.SortDescending = sortDescending;
             return (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
         }
 
@@ -192,7 +243,8 @@ namespace MVC_Sample.Controllers
         private async Task ExecuteSearch(OrdTfViewModel model, int pageNo)
         {
             OrdTfReturnValue rv = await this.CallSearch(
-                model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, pageNo);
+                model.PCustomerID, model.PEmployeeID, model.POrderDateFrom, model.POrderDateTo, model.PShippedStatus, pageNo,
+                model.PSortColumn, model.PSortDescending);
             this.ShowList(model, rv);
             this.RetainPage(model, rv);
         }

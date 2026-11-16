@@ -14,6 +14,7 @@
     //*  日時        更新者            内容
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/13  実装役            新規作成（net48 版 MVC_Sample と同じ構成。Core 用に確認した）
+    //*  2026/11/15  実装役            一覧の並べ替え（EV-ORD-105）：見出しのボタン・保持の hidden・並べ替え列の印（aria-sort と CSS）
     //**********************************************************************************
 *@
 
@@ -27,11 +28,34 @@
     ViewBag.Title = "受注一覧";
     CultureInfo inv = CultureInfo.InvariantCulture;
     string msgClass = string.IsNullOrEmpty(Model.Message) ? "" : (Model.MessageIsError ? "text-danger" : "text-info");
+
+    // 並べ替えられる列（SC-ORD-01-I06 の「並べ替え」が「可」の 7 列。列のキー・表示名）。合計金額・状況は並べ替え不可で、ボタンを置かない
+    (string Key, string Caption)[] sortable =
+    {
+        ("OrderID", "受注 ID"), ("CustomerName", "顧客名"), ("EmployeeName", "担当者名"), ("OrderDate", "受注日"),
+        ("RequiredDate", "要求納期"), ("ShippedDate", "出荷日"), ("ShipperName", "配送業者")
+    };
+    // 現在の並べ替え列・方向の印（DEC-ORD-16）。th のテキストには入れず、aria-sort 属性と CSS の疑似要素で示す
+    string AriaSort(string key)
+    {
+        // 保持された並べ替えが無い（見出しをまだ押していない）ときの一覧は既定の並び＝受注日の降順なので、受注日に降順の印を出す（EV-ORD-101 手順 3）。
+        // 表示だけの扱い。保持する値（PSortColumn の hidden）とコントローラの反転の判定は変えない
+        bool isDefault = string.IsNullOrEmpty(Model.PSortColumn);
+        string col = isDefault ? "OrderDate" : Model.PSortColumn;
+        bool desc = isDefault ? true : Model.PSortDescending;
+        if (key != col) return null;
+        return desc ? "descending" : "ascending";
+    }
 }
 
 @* スクリプト・セクション（RenderSection("HeaderScriptsSection", required: true)に出力されます） *@
 @section HeaderScriptsSection{
     <!-- Head 部の section -->
+    <style>
+        #orderList th button.sort-button { background: none; border: 0; padding: 0; font-weight: bold; color: inherit; cursor: pointer; }
+        #orderList th[aria-sort=ascending] button.sort-button::after { content: " ▲"; }
+        #orderList th[aria-sort=descending] button.sort-button::after { content: " ▼"; }
+    </style>
 }
 
 @* フッタ部のメインボタン（5 つ）。@section は <form> の外に描画されるので form 属性で紐付ける。
@@ -59,6 +83,8 @@
     @Html.HiddenFor(m => m.POrderDateFrom)
     @Html.HiddenFor(m => m.POrderDateTo)
     @Html.HiddenFor(m => m.PShippedStatus)
+    @Html.HiddenFor(m => m.PSortColumn)
+    @Html.HiddenFor(m => m.PSortDescending)
     @Html.HiddenFor(m => m.PPageNo)
     @Html.HiddenFor(m => m.PTotalPages)
 
@@ -100,13 +126,12 @@
     <table id="orderList" class="table table-sm table-bordered">
         <thead>
             <tr>
-                <th>受注 ID</th>
-                <th>顧客名</th>
-                <th>担当者名</th>
-                <th>受注日</th>
-                <th>要求納期</th>
-                <th>出荷日</th>
-                <th>配送業者</th>
+                @foreach (var c in sortable)
+                {
+                    <th aria-sort="@AriaSort(c.Key)">
+                        <button type="submit" id="@("sort" + c.Key)" class="sort-button" form="OrdTfForm" formaction="@Url.Action("Sort")" name="sort" value="@c.Key">@c.Caption</button>
+                    </th>
+                }
                 <th>合計金額</th>
                 <th>状況</th>
             </tr>

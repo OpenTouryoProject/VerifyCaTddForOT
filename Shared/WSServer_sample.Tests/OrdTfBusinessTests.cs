@@ -731,5 +731,256 @@ namespace WSServer_sample.Tests
             Assert.That(rv.ErrorFields, Is.Empty);
             Assert.That(rv.Rows.Count, Is.EqualTo(1));
         }
+
+        // ================================================================ 3.7 並べ替え（EV-ORD-105。テスト仕様 8.2）
+
+        private static readonly DateTime DMid = new DateTime(2199, 3, 10);
+        private static readonly DateTime DHigh = new DateTime(2199, 3, 20);
+        private static readonly DateTime DLow = new DateTime(2199, 3, 5);
+        private static readonly DateTime DBase = new DateTime(2199, 3, 1);
+
+        private static OrdTfReturnValue SortSearch(string customerId, int? employeeId, string column, bool desc, int pageNo = 1)
+        {
+            return Search(pv =>
+            {
+                pv.CustomerID = customerId;
+                pv.EmployeeID = employeeId;
+                pv.SortColumn = column;
+                pv.SortDescending = desc;
+                pv.PageNo = pageNo;
+            });
+        }
+
+        /// <summary>o1 = 中、o2 = 高、o3 = 低：昇順 = (o3, o1, o2)、降順 = (o2, o1, o3)</summary>
+        private static void AssertMidHighLow(OrdTfReturnValue rv, bool desc, int o1, int o2, int o3)
+        {
+            Assert.That(rv.ErrorFlag, Is.False);
+            int[] expected = desc ? new[] { o2, o1, o3 } : new[] { o3, o1, o2 };
+            Assert.That(Ids(rv), Is.EqualTo(expected));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_受注ID(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int o1 = data.NewOrder(customerId: a, orderDate: DBase);
+            int o2 = data.NewOrder(customerId: a, orderDate: DBase);
+            int o3 = data.NewOrder(customerId: a, orderDate: DBase);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "OrderID", desc);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(Ids(rv), Is.EqualTo(desc ? new[] { o3, o2, o1 } : new[] { o1, o2, o3 }));
+            Assert.That(rv.TotalCount, Is.EqualTo(3));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_顧客名(bool desc)
+        {
+            int e = data.NewEmployee(TestData.NewLastName('E'), TestData.NewFirstName('E'));
+            string kM = data.NewCustomer('M');
+            string kX = data.NewCustomer('X');
+            string kC = data.NewCustomer('C');
+            int o1 = data.NewOrder(customerId: kM, employeeId: e, orderDate: DBase);
+            int o2 = data.NewOrder(customerId: kX, employeeId: e, orderDate: DBase);
+            int o3 = data.NewOrder(customerId: kC, employeeId: e, orderDate: DBase);
+
+            OrdTfReturnValue rv = SortSearch(null, e, "CustomerName", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_担当者名(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int eM = data.NewEmployee(TestData.NewLastName('M'), TestData.NewFirstName('M'));
+            int eX = data.NewEmployee(TestData.NewLastName('X'), TestData.NewFirstName('X'));
+            int eC = data.NewEmployee(TestData.NewLastName('C'), TestData.NewFirstName('C'));
+            int o1 = data.NewOrder(customerId: a, employeeId: eM, orderDate: DBase);
+            int o2 = data.NewOrder(customerId: a, employeeId: eX, orderDate: DBase);
+            int o3 = data.NewOrder(customerId: a, employeeId: eC, orderDate: DBase);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "EmployeeName", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("DEC-ORD-15"), Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_担当者名は姓の順で同じ姓は名の順(bool desc)
+        {
+            // E1・E2・E3 は姓が同じ（目印 M。GUID も共有）で名は B・C・A。E4 の姓は小さい（目印 C）で名は Z。ID は E1 < E2 < E3 < E4
+            string guid = Guid.NewGuid().ToString("N").Substring(0, 8);
+            string g4 = guid.Substring(0, 4);
+            string lastM = "TfM" + guid;
+            string lastC = "TfC" + guid;
+            string a = data.NewCustomer('A');
+            int e1 = data.NewEmployee(lastM, "B" + g4);
+            int e2 = data.NewEmployee(lastM, "C" + g4);
+            int e3 = data.NewEmployee(lastM, "A" + g4);
+            int e4 = data.NewEmployee(lastC, "Z" + g4);
+            int o1 = data.NewOrder(customerId: a, employeeId: e1, orderDate: DBase);
+            int o2 = data.NewOrder(customerId: a, employeeId: e2, orderDate: DBase);
+            int o3 = data.NewOrder(customerId: a, employeeId: e3, orderDate: DBase);
+            int o4 = data.NewOrder(customerId: a, employeeId: e4, orderDate: DBase);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "EmployeeName", desc);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(Ids(rv), Is.EqualTo(desc ? new[] { o2, o1, o3, o4 } : new[] { o4, o3, o1, o2 }));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_受注日(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int o1 = data.NewOrder(customerId: a, orderDate: DMid);
+            int o2 = data.NewOrder(customerId: a, orderDate: DHigh);
+            int o3 = data.NewOrder(customerId: a, orderDate: DLow);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "OrderDate", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_要求納期(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int o1 = data.NewOrder(customerId: a, orderDate: DBase, requiredDate: DMid);
+            int o2 = data.NewOrder(customerId: a, orderDate: DBase, requiredDate: DHigh);
+            int o3 = data.NewOrder(customerId: a, orderDate: DBase, requiredDate: DLow);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "RequiredDate", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_出荷日(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int o1 = data.NewOrder(customerId: a, orderDate: DBase, shippedDate: DMid);
+            int o2 = data.NewOrder(customerId: a, orderDate: DBase, shippedDate: DHigh);
+            int o3 = data.NewOrder(customerId: a, orderDate: DBase, shippedDate: DLow);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "ShippedDate", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-105"), Basis("SC-ORD-01-I06")]
+        public void OrdTfSearch_並べ替え_配送業者(bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int sM = data.NewShipper(mark: 'M');
+            int sX = data.NewShipper(mark: 'X');
+            int sC = data.NewShipper(mark: 'C');
+            int o1 = data.NewOrder(customerId: a, orderDate: DBase, shipVia: sM);
+            int o2 = data.NewOrder(customerId: a, orderDate: DBase, shipVia: sX);
+            int o3 = data.NewOrder(customerId: a, orderDate: DBase, shipVia: sC);
+
+            OrdTfReturnValue rv = SortSearch(a, null, "ShipperName", desc);
+
+            AssertMidHighLow(rv, desc, o1, o2, o3);
+        }
+
+        [TestCase(null, false)]
+        [TestCase("", true)]
+        [TestCase(null, true)]
+        [Basis("SC-ORD-01-I06"), Basis("EV-ORD-101")]
+        public void OrdTfSearch_並べ替えの列が空なら既定の並び(string column, bool desc)
+        {
+            string a = data.NewCustomer('A');
+            int o1 = data.NewOrder(customerId: a, orderDate: DMid);
+            int o2 = data.NewOrder(customerId: a, orderDate: DHigh);
+            int o3 = data.NewOrder(customerId: a, orderDate: DLow);
+
+            OrdTfReturnValue rv = SortSearch(a, null, column, desc);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(Ids(rv), Is.EqualTo(new[] { o2, o1, o3 }));
+        }
+
+        [Test, Basis("EV-ORD-105"), Basis("EV-ORD-102")]
+        public void OrdTfSearch_並べ替えは抽出条件と併用する()
+        {
+            string a = data.NewCustomer('A');
+            string b = data.NewCustomer('B');
+            int o1 = data.NewOrder(customerId: a, orderDate: DMid);
+            int o2 = data.NewOrder(customerId: a, orderDate: DHigh);
+            int o3 = data.NewOrder(customerId: a, orderDate: DLow);
+            data.NewOrder(customerId: b, orderDate: D(2199, 3, 15));
+
+            OrdTfReturnValue rv = SortSearch(a, null, "OrderDate", false);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(Ids(rv), Is.EqualTo(new[] { o3, o1, o2 }));
+            Assert.That(rv.TotalCount, Is.EqualTo(3));
+        }
+
+        [TestCase(1, 1, 20)]
+        [TestCase(2, 21, 40)]
+        [TestCase(3, 41, 45)]
+        [Basis("EV-ORD-104"), Basis("EV-ORD-105")]
+        public void OrdTfSearch_並べ替え後のページごとの20件(int pageNo, int topI, int bottomI)
+        {
+            string a = data.NewCustomer('A');
+            // i 番目 = 受注日 SeqStart + i 日。登録は i の降順（ID は i が大きいほど小さい）
+            int[] ids = new int[46];
+            for (int i = 45; i >= 1; i--)
+                ids[i] = data.NewOrder(customerId: a, orderDate: SeqStart.AddDays(i));
+
+            OrdTfReturnValue rv = SortSearch(a, null, "OrderDate", false, pageNo);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            List<int> expected = new List<int>();
+            for (int i = topI; i <= bottomI; i++) expected.Add(ids[i]);
+            Assert.That(Ids(rv), Is.EqualTo(expected));
+            Assert.That(rv.TotalCount, Is.EqualTo(45));
+            Assert.That(rv.TotalPages, Is.EqualTo(3));
+            Assert.That(rv.PageNo, Is.EqualTo(pageNo));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-104"), Basis("EV-ORD-105")]
+        public void OrdTfSearch_並べ替えで同じ値が続いても全ページで重ならず抜けない(bool desc)
+        {
+            // 顧客がすべて同じ A＝顧客名がすべて同じ値。同じ値の中の並び順は期待にしない（DEC-ORD-12）
+            string a = data.NewCustomer('A');
+            List<int> registered = new List<int>();
+            for (int i = 1; i <= 45; i++)
+                registered.Add(data.NewOrder(customerId: a, orderDate: SeqStart.AddDays(i)));
+
+            List<int> all = new List<int>();
+            int[] expectedCounts = { 20, 20, 5 };
+            for (int p = 1; p <= 3; p++)
+            {
+                OrdTfReturnValue rv = SortSearch(a, null, "CustomerName", desc, p);
+                Assert.That(rv.ErrorFlag, Is.False);
+                Assert.That(rv.Rows.Count, Is.EqualTo(expectedCounts[p - 1]), "ページ " + p + " の件数");
+                all.AddRange(Ids(rv));
+            }
+
+            Assert.That(all.Distinct().Count(), Is.EqualTo(45), "重複なし");
+            Assert.That(all, Is.EquivalentTo(registered), "欠落なし");
+        }
     }
 }
