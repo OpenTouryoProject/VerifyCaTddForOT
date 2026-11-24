@@ -129,6 +129,7 @@
 | OrdTfEditInit_編集の明細の項目と並びと金額 | EV-ORD-301 手順 3-4・5, SC-ORD-03-I16・I17・I18, OD-T4, 共通仕様 3 節 | 受注 1 件（送料 `34.50`）に、商品 A・M・X（名前の昇順 A < M < X）を **M・X・A の順に**入れる：M = `50.00`・`0.25`・2・在庫 17、X = `20.00`・`0.05`・3・在庫 NULL、A = `100.00`・`0.15`・12・在庫 5。ほかの受注 o2 にも明細 1 行 | Mode = "edit" | EditLines が 3 行で A・M・X の順。各行の ProductID・ProductName（付記なし）・UnitPrice・Discount・Quantity・UnitsInStock（X は null）。RowVersion = 1（各行）。Subtotal = 1152.00、Total = 1186.50。o2 の明細を含まない |
 | OrdTfEditInit_編集の明細金額は四捨五入して合算する | 共通仕様 3 節（明細金額は小数第 3 位を四捨五入し、その値を合算）, OD-T4, EV-ORD-301 手順 5 | 受注 1 件（送料 10.00）に、単価 `0.50`・割引 `0.15`・数量 1 の明細を商品 2 つで 2 行 | Mode = "edit" | 各行の UnitPrice = 0.50・Discount = 0.15・Quantity = 1。Subtotal = 0.86（各行 `0.425` を四捨五入して 0.43 ずつ。偶数丸めなら 0.84）、Total = 10.86 |
 | OrdTfEditInit_編集の明細金額の丸めは数量を掛けた後 | 共通仕様 3 節, OD-T4, EV-ORD-301 手順 5 | 受注 1 件（送料 0）に、単価 `0.50`・割引 `0.15`・数量 3 の明細 1 行 | Mode = "edit" | Subtotal = 1.28（`0.425 × 3 = 1.275` を丸める。価格を先に丸めると 1.29）、Total = 1.28。Discount = 0.15（real を 10 進数へ変換した値） |
+| OrdTfEditInit_編集で送料がNULLなら0として足す | EV-ORD-301 手順 5, DEC-CMN-03（NULL は 0 として合計に足す）, 共通仕様 4 節（NULL は空表示） | 送料 NULL の受注 1 件に、単価 `12.50`・割引 0・数量 1 の明細 1 行 | Mode = "edit"、OrderID = その受注 | ErrorFlag = false。OrderID = その受注、Freight = null、Subtotal = 12.50、Total = 12.50 |
 | OrdTfEditInit_編集の明細の行バージョン | EV-ORD-301 手順 3-4（各行の RowVersion も保持） | 明細 2 行。うち 1 行を `BumpDetail` | Mode = "edit" | 該当行の RowVersion = 2、他方 = 1 |
 | OrdTfEditInit_廃番の既存明細は残し選択肢には無い | EV-ORD-301 手順 3-5, OD-T3 | 受注 1 件に、廃番でない商品 P・廃番の商品 Q の明細 | Mode = "edit" | EditLines に P・Q の 2 行、Q の Discontinued = true・P は false。ProductOptions に Q を含まない（P を含む） |
 | OrdTfEditInit_編集で存在しない受注 | EV-ORD-301 手順 3-1, ERR-NOTFOUND | `DeleteOrder` で消した ID | Mode = "edit" | ErrorFlag = true、ErrorMessage =「対象のデータは存在しません。」 |
@@ -186,7 +187,7 @@
 | OrdTfSave_割引率の違反（TestCase：`-0.01`／`1.01`／`abc`）と境界0・1 | VAL-NUMERIC | DiscountText = 各値（`0`・`1` は通る） | ErrorFields = [`Lines[0].Discount`]（`0`・`1` は ErrorFlag = false。戻り値の OrderID > 0、`GetOrder` で入力の値が入っている・`GetDetails` の Discount = 入力の値） |
 | OrdTfSave_数量の違反（TestCase：`0`／`-1`／`1.5`／`abc`）と境界1 | VAL-NUMERIC | QuantityText = 各値（`1` は通る） | ErrorFields = [`Lines[0].Quantity`]（`1` は ErrorFlag = false。戻り値の OrderID > 0、`GetOrder` で入力の値が入っている・`GetDetails` の Quantity = 1） |
 | OrdTfSave_出荷先の桁数（TestCase：`ShipName` 40／`ShipAddress` 60／`ShipCity` 15／`ShipRegion` 15／`ShipPostalCode` 10／`ShipCountry` 15） | VAL-LENGTH, TableSchema Orders の桁数 | 該当項目を **桁数ちょうど**（通る）／**桁数 + 1**（違反）。日本語の文字を含む。**`ShipName` の値は、`"Tf" + GUID 8 桁 + 日本語の文字（`あ`）`で 40 桁・41 桁ちょうどに作る**（例 `"Tf" + guid8 + new string('あ', 30)` が 40 桁、1 文字足したものが 41 桁。同じ値を使う別のケース・前の実行の残りと件数が混ざらない）。ほかの 5 項目は決まった値のまま | ちょうど：ErrorFlag = false、保存された値が同じ。+1：ErrorFields = [該当項目のキー] |
-| OrdTfSave_存在しない顧客・担当者・配送業者・商品（TestCase：4 通り） | VAL-EXISTS, DEC-CMN-05 | CustomerID／EmployeeIDText／ShipViaText／明細の ProductIDText を、存在しない値（または数値でない文字列）に | ErrorFlag = true。ErrorFields = [`CustomerID`／`EmployeeID`／`ShipVia`／`Lines[0].ProductID`] |
+| OrdTfSave_存在しない顧客・担当者・配送業者・商品（TestCase：6 通り。担当者は存在しない数値・数値でない文字列の 2 通り、配送業者・商品も同じ） | VAL-EXISTS, DEC-CMN-05 | CustomerID／EmployeeIDText／ShipViaText／明細の ProductIDText を、存在しない値（`EmployeeID`・`ShipVia` は `2147483647`、商品は消した ID）または数値でない文字列 `abc`（`EmployeeID`・`ShipVia`・`ProductID` の 3 項目）に（テストは担当者・配送業者・商品とも、値を TestCase の引数で受け取る） | ErrorFlag = true。ErrorFields = [`CustomerID`／`EmployeeID`／`ShipVia`／`Lines[0].ProductID`] |
 | OrdTfSave_商品の重複 | VAL-DUP, OD-T1, DEC-CMN-04 | 明細 2 行に同じ商品 P1 | ErrorFlag = true。ErrorMessages に「同一商品の明細が重複しています。」を含む。ErrorFields が空 |
 | OrdTfSave_明細が0行 | ORD-T5, ERR-BIZ | SaveLines が空 | ErrorFlag = true。ErrorMessages に「明細を 1 行以上入力してください。」を含む |
 | OrdTfSave_新規の廃番商品は指定できない | OD-T3, ERR-BIZ | 明細の商品が廃番の商品 Q | ErrorFlag = true。ErrorMessages に「廃番商品は指定できません。」を含む |
@@ -218,10 +219,11 @@
 | OrdTfSave_編集で消された受注でも検証の違反が先に返る | EV-ORD-308 手順 1・4-2（検証が先。存在の確認は更新の手順）, ERR-VALIDATION, ERR-NOTFOUND | `DeleteOrder` で消した受注 o（明細 A を持っていた） | Mode = "edit"、OrderID = o、RowVersion = 1、送料 `-1`（ほかは有効な値） | ErrorFlag = true。ErrorFields = [`Freight`]。ErrorMessage は「対象のデータは存在しません。」ではない（受注が無くても、検証の違反が先に返る） |
 | OrdTfSave_編集の検証エラーでは何も更新しない | EV-ORD-308 手順 1, ERR-VALIDATION | o（明細 A・M） | 送料 `-1`、M の数量を `0` | ErrorFlag = true。ErrorFields = [`Freight`, `Lines[1].Quantity`]（M の行が 2 行目）。`GetOrder` の RowVersion = 1・送料 5.00、`GetDetails` が保存の前と同じ |
 | OrdTfSave_編集でも必須の欠けは違反（TestCase：顧客／担当者／受注日。値は空）（DEC-ORD-48） | VAL-REQUIRED, ORD-T1, EV-ORD-308 検証内容（モードを区別しない）, DEC-CMN-05, DEC-ORD-48 | o（明細 A。顧客・担当者・受注日に値がある） | Mode = "edit"、RowVersion = 1。該当項目（`CustomerID`／`EmployeeIDText`／`OrderDateText`）だけを空にして、ほかは読み込んだ状態のまま | ErrorFlag = true。ErrorFields = [`CustomerID`／`EmployeeID`／`OrderDate`]（1 件）。ErrorMessages が空。戻り値の OrderID は 0。`GetOrder` の RowVersion = 1・受注の各項目、`GetDetails` が保存の前と同じ |
+| OrdTfSave_編集で読み込み時の行の商品を空や不正にしても検証は外れない（TestCase：ProductIDText = null／`abc`） | VAL-REQUIRED（空）, VAL-EXISTS（数値でない）, EV-ORD-308 検証内容, DEC-ORD-49（検証を `Original*` を信じて外さない） | o（明細 A） | Mode = "edit"、RowVersion = 1、SaveLines = [A の行（`Same(A)`＝`OriginalProductID` = A のまま）で、`ProductIDText` だけを該当の値にしたもの] | ErrorFlag = true。ErrorFields = [`Lines[0].ProductID`]。ErrorMessages が空。`GetOrder` の RowVersion = 1、`GetDetails` は保存の前と同じ（明細 A のみ） |
 | OrdTfSave_編集で保存の後は古い行バージョンで保存できない | 共通仕様 9.1（`RowVersion = RowVersion + 1`）, ERR-CONFLICT | o | (1) RowVersion = 1 で保存。(2) もう一度 RowVersion = 1 で保存。(3) (1) の戻り値の RowVersion で保存 | (1) ErrorFlag = false、RowVersion = 2。(2) ErrorFlag = true、ErrorMessage が CONFLICT の文言。(3) ErrorFlag = false、RowVersion = 3 |
 | OrdTfSave_編集で他の受注の同じ商品の明細に触れない | EV-ORD-308 手順 4-3（OrderID と ProductID の一致） | o（明細 A）と o2（明細 A） | o の A の数量を変え、M を足す | o2 の明細 A の数量・RowVersion が保存の前と同じ |
 
-- 追加：**3.1 が 14 メソッド・15 ケース、3.2 が 4、3.3 が 3、3.4 が 7、3.5 が 21 メソッド・約 58 ケース（TestCase を数える）、3.6 が 21 メソッド・約 24 ケース**。段 2 の報告で実数を書く。net10.0 でも net48 でも同じ結果になること。
+- 追加：**3.1 が 15 メソッド・16 ケース、3.2 が 4、3.3 が 3、3.4 が 7、3.5 が 21 メソッド・約 60 ケース（TestCase を数える）、3.6 が 22 メソッド・約 26 ケース**。段 2 の報告で実数を書く。net10.0 でも net48 でも同じ結果になること。
 
 ## 4. 画面の E2E（`MVC_Sample_Core\MVC_Sample.E2ETests\OrdTfEditScreenTests`。新しいクラス）
 
@@ -234,6 +236,7 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 | 登録_選択肢 | EV-ORD-301 手順 1, OD-T3, SC-ORD-03-I02・I05・I08・I16 列 1 | K1・K2、E1・E2、S、P1・P2（廃番でない）、Q（廃番） | 登録を開く | `#CustomerID` の最初の option が空白で、K1・K2 の会社名がある。`#EmployeeID`・`#ShipVia` も同様（先頭が空白）。`.line-product` の選択肢に P1・P2 があり Q が無い |
 | 顧客選択_顧客情報と出荷先の既定値 | EV-ORD-302 手順 3・4, ORD-T6, DEC-ORD-45 | 顧客 K（電話・住所・市・地域・郵便番号・国あり） | 登録を開き、`#CustomerID` で K を選ぶ | `#customerPhone` = 電話。`#customerAddress` が K の要素を順に含む（区切りは期待にしない）。`#ShipName` = K の会社名、`#ShipAddress`・`#ShipCity`・`#ShipRegion`・`#ShipPostalCode`・`#ShipCountry` = K の各項目。確認ダイアログは出ない |
 | 顧客選択_自動設定のままなら確認なしで上書き（DEC-ORD-32） | EV-ORD-302 手順 4（既に手入力している場合のみ確認）, DEC-ORD-32 | 顧客 K1・K2（出荷先が別の値） | 登録を開く → K1 を選ぶ → K2 を選ぶ | 2 回目も確認ダイアログが出ない。`#ShipName` = K2 の会社名、他も K2 の値 |
+| 顧客選択_検証エラーの後も自動設定のままなら確認なしで上書き（DEC-ORD-32） | EV-ORD-302 手順 4（既に手入力している場合のみ確認）, DEC-ORD-32, EV-ORD-308 手順 1（検証エラーは入力値を保持して画面に留まる） | 顧客 K1・K2（出荷先が別の値） | 登録を開く → K1 を選ぶ（出荷先が自動で入る）→ `#Freight` に `-1` を入れる → `#btnMain1`（検証エラーで画面に留まる）→ `#CustomerID` で K2 を選ぶ | 確認ダイアログが出ない。`#ShipName` = K2 の会社名、ほかの出荷先も K2 の値。（検証エラーの描き直しの後も、自動で入った出荷先を変えていなければ「手入力」とみなさない） |
 | 顧客選択_手入力があれば確認して承認なら上書き（DEC-ORD-32・33） | EV-ORD-302 手順 4, DEC-ORD-32 | K1・K2 | 登録を開く → `#ShipName` に `手入力` と入れる → K1 を選ぶ → 確認を承認 | 確認ダイアログが 1 回出る（文言は期待にしない）。`#ShipName` = K1 の会社名（上書き）。`#customerPhone` = K1 の電話 |
 | 顧客選択_手入力があれば確認して取り消しなら上書きしない（DEC-ORD-32・33） | EV-ORD-302 手順 4（取り消された場合は上書きしない） | K1 | 同上で確認を取り消す | `#ShipName` = `手入力` のまま。`#ShipAddress` などは空のまま。**顧客情報（`#customerPhone`）は K1 の電話に変わる**（手順 3 は上書きと別） |
 | 顧客選択_空に戻すと顧客情報だけ消える | EV-ORD-302 手順 1 | K | 登録を開く → K を選ぶ（出荷先が入る）→ 空白を選ぶ | `#customerPhone`・`#customerAddress` が空。`#ShipName` は K の会社名のまま。確認ダイアログは出ない |
@@ -270,7 +273,7 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 | キャンセル_登録で変更があり承認すると保持した一覧状態の一覧へ戻る | EV-ORD-309 手順 2, F-2・F-3 | K の受注 45 件（i 番目 = `2198/01/01` + i 日） | `/OrdTf` で K を検索 → 次へ（「2 / 3 ページ」）→ `#btnNew` → `#Freight` に `5` を入れる → `#btnCancel` → 承認 | ダイアログのメッセージが「入力内容は保存されません。よろしいですか？」。一覧が表示され、`#CustomerID` = K、`#pageInfo` = 「2 / 3 ページ」、先頭行 = i = 25。DB に受注が増えていない（K の受注 45 件） |
 | キャンセル_登録で変更が無ければ確認なしで一覧へ | EV-ORD-309 手順 1・2 | 受注 1 件 | `/OrdTf` を開き `#btnNew` → `#btnCancel` | 確認ダイアログが出ない。一覧が表示される |
 
-- 追加：**E2E 39 メソッド**（不正値の 2 ケースは TestCase で 5 ケース増える。ケース数は段 2 の報告で実数を書く）。
+- 追加：**E2E 40 メソッド**（不正値の 2 ケースは TestCase で 5 ケース増える。ケース数は段 2 の報告で実数を書く）。
 
 ## 5. 作らないケースと理由
 
@@ -356,3 +359,23 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 
 - 段 2 の時点（段 4 の実装が作業ツリーにある状態。版：Red のコミット 8266d54 の後、決定 21 の追随の前）で流した：**最初から通る**（実装が検証 → 存在確認の順のため）。
 - 壊して確かめた：`OrdTfBusiness.UOC_OrdTfSave` の `ValidateSave` の前に、編集のとき `OrdTfOrderCount.sql` で受注の有無を確かめ、無ければ ERR-NOTFOUND を投げる処理を一時的に足した（存在確認 → 検証 → 更新の順）。結果：このケースだけ失敗。落ち方の例：`Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Freight" }))` が `Expected: equivalent to < "Freight" > / But was: <empty>`（ErrorFlag は true だが、ErrorFields が空で ERR-NOTFOUND になる）。**ほかのケースは、この壊し方で新しく落ちなかった**（落ちたのは、実装を直す前から Red の 4 ケースと、このケースだけ。`OrdTfSave_編集で存在しない受注はERR_NOTFOUND`・`OrdTfSave_編集の検証エラーでは何も更新しない` は通った。順の入れ替えを落とすのは、このケースだけ）。戻した後：B層 221 ケース、net10.0・net48 とも失敗 4（Red）・合格 217。
+
+### 8.2 検証エラーの後の自動設定（`顧客選択_検証エラーの後も自動設定のままなら確認なしで上書き`）の確かめ
+
+- 段 2 の時点（段 4 の 1 回目の差し戻しの直し〔自動で入れた出荷先の値を描き直しで引き継ぐ〕を入れた実装。テストのコミット 1dc07ff の後）で流した：**最初から通る**。
+- 壊して確かめた：`Edit.cshtml` の `autoVals` の初期値を、`data-auto-*` から読まず、常に空文字にする（描き直しで自動で入れた値を引き継がない形）に一時的に戻した。結果：このケースだけ失敗（顧客選択の 8 ケース中、失敗 1・合格 7）。落ち方：`Assert.That(dialogs, Is.Empty)` が `Expected: <empty> / But was: < "入力済みの出荷先を、選択した顧客の住所で上書きします。よろしいですか？" >`（確認ダイアログが出た）。ほかの顧客選択のケース（`顧客選択_自動設定のままなら確認なしで上書き` など）は通った。戻した後（`Edit.cshtml` の内容が元と同一で、更新時刻を今にした）：E2E net10.0 全件 99 ケース、全部合格（2 分 21 秒）。
+
+### 8.3 B層の通っていない分岐の仕分けで足したケースの確かめ（段 2 の時点。承認の版の実装〔段 4 の 1 回目の直しの後〕）
+
+足した B層のケース：`OrdTfEditInit_編集で送料がNULLなら0として足す`・`OrdTfSave_存在しない顧客_担当者_配送業者_商品`（TestCase 2 つ：`("ShipVia","abc")`・`("ProductID","abc")`。既存の TestCase は引数の形を揃えた）・`OrdTfSave_編集で読み込み時の行の商品を空や不正にしても検証は外れない`（TestCase 2 つ：null／`abc`）。B層 226 ケース（前の 221 ＋ 5）。**5 ケースとも最初から通った**（実装が既にそうしている）。実装の該当箇所を 1 か所ずつ一時的に壊して流し、戻した（戻した後は内容が同一で、更新時刻を今にした）。
+
+| 壊した箇所 | 落ちたケース | 落ち方の例（実際の値） |
+| --- | --- | --- |
+| `UOC_OrdTfEditInit` の送料 NULL を `0m` にする | `OrdTfEditInit_編集で送料がNULLなら0として足す` のみ | `Assert.That(rv.Freight, Is.Null)`：`Expected: null / But was: 0m` |
+| `UOC_OrdTfEditInit` の合計で、送料 NULL を 1 として足す（`rv.Freight ?? 1m`） | 同上のみ | `Assert.That(rv.Total, Is.EqualTo(12.50m))`：`Expected: 12.5m / But was: 13.5m` |
+| `ValidateSave` の配送業者の検査を、数値でないとき違反にしない（`TryParseInt(...) && !Exists(...)`） | `OrdTfSave_存在しない顧客_担当者_配送業者_商品("ShipVia","abc")` のみ | `Assert.That(rv.ErrorFlag, Is.True)`：`Expected: True / But was: False` |
+| `ValidateSave` の明細の商品の検査を、数値でないとき何もしない（`else if (!TryParseInt(...)) { }`） | `…("ProductID","abc")` と `OrdTfSave_編集で読み込み時の行の商品を空や不正にしても検証は外れない("abc")` | 同上（`Expected: True / But was: False`） |
+| `ResolveOrigins` が `ProductIDText` を `int.Parse` で読む | `…検証は外れない(null)` と `…("abc")` | 例外（`ArgumentNullException : Value cannot be null` ／ `FormatException : The input string 'abc' was not in a correct format`）。業務の異常終了（`UOC_ABEND`）で例外のまま出る |
+| `TryParseInt` が null を許さない（`text.Trim()`） | `…検証は外れない(null)` のみ | `NullReferenceException : Object reference not set to an instance of an object` |
+
+戻した後の全件：B層 net10.0・net48 とも 226 ケース、全部合格（結果は報告に書く）。

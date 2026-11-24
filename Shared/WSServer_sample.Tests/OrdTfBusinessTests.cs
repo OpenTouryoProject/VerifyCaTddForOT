@@ -1805,6 +1805,21 @@ namespace WSServer_sample.Tests
             Assert.That(rv.Total, Is.EqualTo(1.28m));
         }
 
+        [Test, Basis("EV-ORD-301"), Basis("DEC-CMN-03"), Basis("共通仕様 4 節")]
+        public void OrdTfEditInit_編集で送料がNULLなら0として足す()
+        {
+            int p = data.NewProduct(mark: 'A');
+            int o = data.NewOrder(orderDate: D(2199, 3, 5), freight: null);
+            data.NewDetail(o, p, 12.50m, 1, 0f);
+
+            OrdTfReturnValue rv = EditInit("edit", o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.Freight, Is.Null);
+            Assert.That(rv.Subtotal, Is.EqualTo(12.50m));
+            Assert.That(rv.Total, Is.EqualTo(12.50m));
+        }
         [Test, Basis("EV-ORD-301")]
         public void OrdTfEditInit_編集の明細の行バージョン()
         {
@@ -2401,8 +2416,10 @@ namespace WSServer_sample.Tests
         [TestCase("CustomerID")]
         [TestCase("EmployeeID", "2147483647")]
         [TestCase("EmployeeID", "abc")]
-        [TestCase("ShipVia")]
+        [TestCase("ShipVia", "2147483647")]
+        [TestCase("ShipVia", "abc")]
         [TestCase("ProductID")]
+        [TestCase("ProductID", "abc")]
         public void OrdTfSave_存在しない顧客_担当者_配送業者_商品(string field, string value = null)
         {
             Ctx c = NewCtx();
@@ -2413,8 +2430,9 @@ namespace WSServer_sample.Tests
             {
                 if (field == "CustomerID") pv.CustomerID = TestData.NewCustomerId();
                 if (field == "EmployeeID") pv.EmployeeIDText = value;
-                if (field == "ShipVia") pv.ShipViaText = "2147483647";
+                if (field == "ShipVia") pv.ShipViaText = value;
                 if (field == "ProductID") pv.SaveLines = new List<OrdTfSaveLine> { NewLine(gone, "10.00", "0", "1") };
+                if (field == "ProductID" && value != null) pv.SaveLines[0].ProductIDText = value;
             });
 
             Assert.That(rv.ErrorFlag, Is.True);
@@ -2911,6 +2929,26 @@ namespace WSServer_sample.Tests
             Assert.That(TestData.GetDetails(o).Count, Is.EqualTo(1));
         }
 
+        [Test, Basis("VAL-REQUIRED"), Basis("VAL-EXISTS"), Basis("EV-ORD-308"), Basis("DEC-ORD-49")]
+        [TestCase(null)]
+        [TestCase("abc")]
+        public void OrdTfSave_編集で読み込み時の行の商品を空や不正にしても検証は外れない(string text)
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv => pv.SaveLines[0].ProductIDText = text);   // OriginalProductID = A のまま
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Lines[0].ProductID" }));
+            Assert.That(rv.ErrorMessages, Is.Empty);
+            Assert.That(TestData.GetRowVersion(o), Is.EqualTo(1));
+            List<TestData.DetailRow> ds = TestData.GetDetails(o);
+            Assert.That(ds.Count, Is.EqualTo(1));
+            Assert.That(ds[0].ProductID, Is.EqualTo(a.P));
+            Assert.That(ds[0].Quantity, Is.EqualTo(12));
+        }
         [Test, Basis("ORD-T5"), Basis("EV-ORD-308"), Basis("DEC-ORD-49")]
         [TestCase(false)]
         [TestCase(true)]

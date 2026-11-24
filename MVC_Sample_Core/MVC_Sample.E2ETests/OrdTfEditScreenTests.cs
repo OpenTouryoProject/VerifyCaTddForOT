@@ -303,6 +303,28 @@ namespace MVC_Sample.E2ETests
             Assert.That(dialogs, Is.Empty, "2 回目も確認ダイアログが出ない");
         }
 
+        [Test, Basis("EV-ORD-302"), Basis("EV-ORD-308"), Basis("DEC-ORD-32")]
+        public async Task 顧客選択_検証エラーの後も自動設定のままなら確認なしで上書き()
+        {
+            Ctx c = NewCtx();
+
+            await OpenNewAsync();
+            await SelectAsync("#CustomerID", c.K);
+            await Expect(Loc("#ShipName")).ToHaveValueAsync(data.CustomerNames[c.K]);
+            await SetAsync("#Freight", "-1");
+            await ClickAsync("#btnMain1");
+            await Expect(Loc("#FreightError")).ToHaveTextAsync(NonEmpty);   // 検証エラーで画面に留まる
+            await Expect(Loc("#ShipName")).ToHaveValueAsync(data.CustomerNames[c.K]);
+            await SelectAsync("#CustomerID", c.K2);
+
+            await Expect(Loc("#ShipName")).ToHaveValueAsync(data.CustomerNames[c.K2]);
+            await Expect(Loc("#ShipAddress")).ToHaveValueAsync("A2");
+            await Expect(Loc("#ShipCity")).ToHaveValueAsync("C2");
+            await Expect(Loc("#ShipRegion")).ToHaveValueAsync("R2");
+            await Expect(Loc("#ShipPostalCode")).ToHaveValueAsync("P2");
+            await Expect(Loc("#ShipCountry")).ToHaveValueAsync("Us");
+            Assert.That(dialogs, Is.Empty, "確認ダイアログが出ない");
+        }
         [Test, Basis("EV-ORD-302"), Basis("DEC-ORD-32"), Basis("DEC-ORD-33")]
         public async Task 顧客選択_手入力があれば確認して承認なら上書き()
         {
