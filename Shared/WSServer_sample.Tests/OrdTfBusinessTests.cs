@@ -982,5 +982,467 @@ namespace WSServer_sample.Tests
             Assert.That(all.Distinct().Count(), Is.EqualTo(45), "重複なし");
             Assert.That(all, Is.EquivalentTo(registered), "欠落なし");
         }
+
+        // ================================================================ 受注詳細（OrdTfDetail。EV-ORD-201）・削除（OrdTfDelete。EV-ORD-203）
+        // 仕様：docs/spec/test3-testfirst-OrdTfDetail-mvc-core-tests.md（NorthwindDbSampleSpec@ec66d6e）の 3 章。
+
+        private const string MsgNotFound = "対象のデータは存在しません。";
+        private const string MsgConflict = "他の利用者によって更新されています。最新の内容を読み込み直してください。";
+        private const string Discontinued = "（廃番）";
+
+        private static OrdTfReturnValue Detail(int orderId)
+        {
+            return Call("OrdTfDetail", pv => pv.OrderID = orderId);
+        }
+
+        private static OrdTfReturnValue Delete(int orderId, int rowVersion)
+        {
+            return Call("OrdTfDelete", pv => { pv.OrderID = orderId; pv.RowVersion = rowVersion; });
+        }
+
+        /// <summary>日付の指定：null、"T"（今日）、"T-1"（昨日）、"yyyy/MM/dd"</summary>
+        private static DateTime? Day(string s)
+        {
+            if (s == null) return null;
+            if (s == "T") return DateTime.Today;
+            if (s == "T-1") return DateTime.Today.AddDays(-1);
+            return DateTime.ParseExact(s, "yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        // ---------------------------------------------------------------- 3.1 受注詳細
+
+        [Test]
+        [Basis("EV-ORD-201"), Basis("SC-ORD-02-I01"), Basis("SC-ORD-02-I02"), Basis("SC-ORD-02-I03"), Basis("SC-ORD-02-I04"), Basis("SC-ORD-02-I06"),
+            Basis("SC-ORD-02-I07"), Basis("SC-ORD-02-I08"), Basis("SC-ORD-02-I09"), Basis("SC-ORD-02-I10"), Basis("EMP-T1")]
+        public void OrdTfDetail_受注情報()
+        {
+            string k = data.NewCustomer('K', phone: "03-1234-5678");
+            string last = TestData.NewLastName('L');
+            string first = TestData.NewFirstName('F');
+            int e = data.NewEmployee(last, first);
+            int s = data.NewShipper();
+            int o = data.NewOrder(customerId: k, employeeId: e, orderDate: D(2199, 3, 5), requiredDate: D(2199, 4, 1),
+                shippedDate: D(2199, 3, 10), shipVia: s, freight: 0m);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.CustomerName, Is.EqualTo(data.CustomerNames[k]));
+            Assert.That(rv.CustomerPhone, Is.EqualTo("03-1234-5678"));
+            Assert.That(rv.EmployeeName, Is.EqualTo(last + " " + first));
+            Assert.That(rv.ShipperName, Is.EqualTo(data.ShipperNames[s]));
+            Assert.That(rv.OrderDate, Is.EqualTo(D(2199, 3, 5)));
+            Assert.That(rv.RequiredDate, Is.EqualTo(D(2199, 4, 1)));
+            Assert.That(rv.ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(rv.Status, Is.EqualTo("出荷済"));
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("SC-ORD-02-I11"), Basis("SC-ORD-02-I12"), Basis("SC-ORD-02-I13"),
+            Basis("SC-ORD-02-I14"), Basis("SC-ORD-02-I15"), Basis("SC-ORD-02-I16"), Basis("ORD-T6")]
+        public void OrdTfDetail_出荷先情報()
+        {
+            string k = data.NewCustomer('K', address: "Cust Addr", city: "Cust City", region: "Cust Reg", postalCode: "999-9999", country: "Cust Ctry");
+            int o = data.NewOrder(customerId: k, orderDate: D(2199, 3, 5), shipName: "ShipTo Co", shipAddress: "4-5-6 Ginza",
+                shipCity: "Chuo", shipRegion: "Tokyo", shipPostalCode: "104-0061", shipCountry: "Japan");
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.ShipName, Is.EqualTo("ShipTo Co"));
+            Assert.That(rv.ShipAddress, Is.EqualTo("4-5-6 Ginza"));
+            Assert.That(rv.ShipCity, Is.EqualTo("Chuo"));
+            Assert.That(rv.ShipRegion, Is.EqualTo("Tokyo"));
+            Assert.That(rv.ShipPostalCode, Is.EqualTo("104-0061"));
+            Assert.That(rv.ShipCountry, Is.EqualTo("Japan"));
+        }
+
+        [Test, Basis("SC-ORD-02-I05"), Basis("DEC-ORD-18")]
+        public void OrdTfDetail_顧客住所は空の要素を詰めて連結する()
+        {
+            // 区切り文字は期待にしない（DEC-ORD-18）。要素が順に並び、区切りが同じ文字列で、空の要素の分の区切りが残らない
+            string k0 = data.NewCustomer('K', address: "A1", city: "C1", region: null, postalCode: null, country: "Jp");
+            string k1 = data.NewCustomer('K', address: "A1", city: "C1", region: null, postalCode: "", country: "Jp");
+            string k2 = data.NewCustomer('K', address: "A1", city: "C1", region: "R1", postalCode: "P1", country: "Jp");
+            int o0 = data.NewOrder(customerId: k0, orderDate: D(2199, 3, 5));
+            int o1 = data.NewOrder(customerId: k1, orderDate: D(2199, 3, 5));
+            int o2 = data.NewOrder(customerId: k2, orderDate: D(2199, 3, 5));
+
+            string a0 = Detail(o0).CustomerAddress;
+            string a1 = Detail(o1).CustomerAddress;
+            string a2 = Detail(o2).CustomerAddress;
+
+            Assert.That(a0, Is.Not.Null, "K0 の住所が返る");
+            Assert.That(a1, Is.Not.Null, "K1 の住所が返る");
+            Assert.That(a2, Is.Not.Null, "K2 の住所が返る");
+            Assert.That(a0, Does.Match(@"^A1([\s\S]*)C1\1Jp$"), "K0");
+            Assert.That(a1, Is.EqualTo(a0), "K1（PostalCode が空文字）は K0（NULL）と同じ");
+            Assert.That(a2, Does.Match(@"^A1([\s\S]*)C1\1R1\1P1\1Jp$"), "K2");
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("共通仕様 4 節（空値の表示）"), Basis("ORD-T1")]
+        public void OrdTfDetail_顧客_担当者_配送業者が無いと空()
+        {
+            int o = data.NewOrder(freight: 0m);   // CustomerID・EmployeeID・日付・ShipVia・Ship* がすべて NULL
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.CustomerName, Is.EqualTo(""));
+            Assert.That(rv.CustomerPhone, Is.EqualTo(""));
+            Assert.That(rv.CustomerAddress, Is.EqualTo(""));
+            Assert.That(rv.EmployeeName, Is.EqualTo(""));
+            Assert.That(rv.ShipperName, Is.EqualTo(""));
+            Assert.That(rv.ShipName, Is.EqualTo(""));
+            Assert.That(rv.ShipAddress, Is.EqualTo(""));
+            Assert.That(rv.ShipCity, Is.EqualTo(""));
+            Assert.That(rv.ShipRegion, Is.EqualTo(""));
+            Assert.That(rv.ShipPostalCode, Is.EqualTo(""));
+            Assert.That(rv.ShipCountry, Is.EqualTo(""));
+            Assert.That(rv.OrderDate, Is.Null);
+            Assert.That(rv.RequiredDate, Is.Null);
+            Assert.That(rv.ShippedDate, Is.Null);
+        }
+
+        [TestCase("2000/01/01", null, "納期遅延")]
+        [TestCase("2199/12/31", null, "未出荷")]
+        [TestCase("T", null, "未出荷")]
+        [TestCase("T-1", null, "納期遅延")]
+        [TestCase(null, null, "未出荷")]
+        [TestCase("2199/12/31", "2001/01/01", "出荷済")]
+        [TestCase("2001/01/01", "2001/01/01", "出荷済")]
+        [TestCase("2001/01/01", "2001/01/02", "納期遅延")]
+        [TestCase(null, "2001/01/01", "出荷済")]
+        [Basis("EV-ORD-201"), Basis("ORD-T7"), Basis("ORD-T2"), Basis("DEC-ORD-27")]
+        public void OrdTfDetail_状況の判定(string required, string shipped, string expected)
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: Day(required), shippedDate: Day(shipped));
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Status, Is.EqualTo(expected));
+        }
+
+        [TestCase(null, true)]
+        [TestCase("2001/01/01", false)]
+        [Basis("EV-ORD-201"), Basis("ORD-T4"), Basis("SC-ORD-02-B01")]
+        public void OrdTfDetail_出荷済は編集不可(string shipped, bool expected)
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), shippedDate: Day(shipped));
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.CanEdit, Is.EqualTo(expected));
+        }
+
+        [Test]
+        [Basis("EV-ORD-201"), Basis("SC-ORD-02-I17"), Basis("SC-ORD-02-I18"), Basis("SC-ORD-02-I19"), Basis("SC-ORD-02-I20"),
+            Basis("OD-T4"), Basis("共通仕様 3 節（金額の算出式）")]
+        public void OrdTfDetail_明細の項目と並びと金額()
+        {
+            int pa = data.NewProduct(mark: 'A', unitsInStock: 5);
+            int pm = data.NewProduct(mark: 'M', unitsInStock: 17);
+            int px = data.NewProduct(mark: 'X', unitsInStock: 0);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 34.50m);
+            data.NewDetail(o, pm, 50.00m, 2, 0.25f);   // M・X・A の順に登録する
+            data.NewDetail(o, px, 20.00m, 3, 0.05f);
+            data.NewDetail(o, pa, 100.00m, 12, 0.15f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Lines.Count, Is.EqualTo(3));
+            Assert.That(rv.Lines.Select(l => l.ProductName).ToList(),
+                Is.EqualTo(new List<string> { data.ProductNames[pa], data.ProductNames[pm], data.ProductNames[px] }), "商品名の昇順（A・M・X）");
+
+            OrdTfDetailLine a = rv.Lines[0], m = rv.Lines[1], x = rv.Lines[2];
+            Assert.That(a.UnitPrice, Is.EqualTo(100.00m)); Assert.That(a.Discount, Is.EqualTo(0.15m)); Assert.That(a.Price, Is.EqualTo(85.00m));
+            Assert.That(a.Quantity, Is.EqualTo(12)); Assert.That(a.UnitsInStock, Is.EqualTo(5)); Assert.That(a.Amount, Is.EqualTo(1020.00m));
+            Assert.That(m.UnitPrice, Is.EqualTo(50.00m)); Assert.That(m.Discount, Is.EqualTo(0.25m)); Assert.That(m.Price, Is.EqualTo(37.50m));
+            Assert.That(m.Quantity, Is.EqualTo(2)); Assert.That(m.UnitsInStock, Is.EqualTo(17)); Assert.That(m.Amount, Is.EqualTo(75.00m));
+            Assert.That(x.UnitPrice, Is.EqualTo(20.00m)); Assert.That(x.Discount, Is.EqualTo(0.05m)); Assert.That(x.Price, Is.EqualTo(19.00m));
+            Assert.That(x.Quantity, Is.EqualTo(3)); Assert.That(x.UnitsInStock, Is.EqualTo(0)); Assert.That(x.Amount, Is.EqualTo(57.00m));
+            Assert.That(rv.Subtotal, Is.EqualTo(1152.00m));
+            Assert.That(rv.Freight, Is.EqualTo(34.50m));
+            Assert.That(rv.Total, Is.EqualTo(1186.50m));
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("SC-ORD-02-I17")]
+        public void OrdTfDetail_廃番商品は商品名に付記する()
+        {
+            int p = data.NewProduct(mark: 'P');
+            int q = data.NewProduct(mark: 'Q', discontinued: true);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+            data.NewDetail(o, q, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            OrdTfDetailLine lp = rv.Lines.FirstOrDefault(l => l.ProductName.StartsWith(data.ProductNames[p]));
+            OrdTfDetailLine lq = rv.Lines.FirstOrDefault(l => l.ProductName.StartsWith(data.ProductNames[q]));
+            Assert.That(lp, Is.Not.Null, "P の行");
+            Assert.That(lq, Is.Not.Null, "Q の行");
+            Assert.That(lp.ProductName, Is.EqualTo(data.ProductNames[p]));
+            Assert.That(lp.ProductName, Does.Not.Contain(Discontinued));
+            Assert.That(lq.ProductName, Does.EndWith(Discontinued));
+        }
+
+        [Test, Basis("共通仕様 3 節（明細金額は小数第 3 位を四捨五入し、その値を合算）"), Basis("EV-ORD-201")]
+        public void OrdTfDetail_明細金額は四捨五入して合算する()
+        {
+            int p1 = data.NewProduct(mark: 'P');
+            int p2 = data.NewProduct(mark: 'Q');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 10.00m);
+            data.NewDetail(o, p1, 0.50m, 1, 0.15f);
+            data.NewDetail(o, p2, 0.50m, 1, 0.15f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.Lines.Count, Is.EqualTo(2));
+            foreach (OrdTfDetailLine l in rv.Lines)
+            {
+                Assert.That(l.Price, Is.EqualTo(0.425m));
+                Assert.That(l.Amount, Is.EqualTo(0.43m));
+            }
+            Assert.That(rv.Subtotal, Is.EqualTo(0.86m));
+            Assert.That(rv.Total, Is.EqualTo(10.86m));
+        }
+
+        [Test, Basis("共通仕様 3 節（金額の算出式）"), Basis("EV-ORD-201")]
+        public void OrdTfDetail_明細金額の丸めは数量を掛けた後()
+        {
+            int p = data.NewProduct(mark: 'P');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 0m);
+            data.NewDetail(o, p, 0.50m, 3, 0.15f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.Lines.Count, Is.EqualTo(1));
+            Assert.That(rv.Lines[0].Price, Is.EqualTo(0.425m));
+            Assert.That(rv.Lines[0].Amount, Is.EqualTo(1.28m));
+        }
+
+        [Test, Basis("DEC-CMN-02"), Basis("EV-ORD-201")]
+        public void OrdTfDetail_明細が無い受注()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 7.25m);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Lines.Count, Is.EqualTo(0));
+            Assert.That(rv.Subtotal, Is.EqualTo(0m));
+            Assert.That(rv.Freight, Is.EqualTo(7.25m));
+            Assert.That(rv.Total, Is.EqualTo(7.25m));
+        }
+
+        [Test, Basis("DEC-CMN-03"), Basis("共通仕様 4 節（空値の表示）")]
+        public void OrdTfDetail_送料がNULLなら0として足す()
+        {
+            int p = data.NewProduct(mark: 'P');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: null);
+            data.NewDetail(o, p, 12.50m, 1, 0f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Freight, Is.Null);
+            Assert.That(rv.Subtotal, Is.EqualTo(12.50m));
+            Assert.That(rv.Total, Is.EqualTo(12.50m));
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("共通仕様 9.1 節（既定 1・更新で +1）")]
+        public void OrdTfDetail_行バージョン()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+
+            Assert.That(Detail(o).RowVersion, Is.EqualTo(1));
+
+            TestData.BumpOrder(o, 1.00m);
+            Assert.That(Detail(o).RowVersion, Is.EqualTo(2));
+        }
+
+        [Test, Basis("EV-ORD-201")]
+        public void OrdTfDetail_ほかの受注の明細は含めない()
+        {
+            int p1 = data.NewProduct(mark: 'A');
+            int p2 = data.NewProduct(mark: 'M');
+            int p3 = data.NewProduct(mark: 'X');
+            int o1 = data.NewOrder(orderDate: D(2199, 3, 1), freight: 0m);
+            int o2 = data.NewOrder(orderDate: D(2199, 3, 1), freight: 0m);
+            data.NewDetail(o1, p1, 10.00m, 1, 0f);
+            data.NewDetail(o1, p2, 20.00m, 1, 0f);
+            data.NewDetail(o2, p3, 300.00m, 1, 0f);
+
+            OrdTfReturnValue rv = Detail(o1);
+
+            Assert.That(rv.Lines.Count, Is.EqualTo(2));
+            Assert.That(rv.Lines.Any(l => l.ProductName.StartsWith(data.ProductNames[p3])), Is.False, "o2 の商品を含まない");
+            Assert.That(rv.Subtotal, Is.EqualTo(30.00m));
+        }
+
+        [Test, Basis("共通仕様 4 節（空値の表示）"), Basis("SC-ORD-02-I17")]
+        public void OrdTfDetail_在庫がNULLの商品()
+        {
+            int p = data.NewProduct(mark: 'P', unitsInStock: null);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.Lines.Count, Is.EqualTo(1));
+            Assert.That(rv.Lines[0].UnitsInStock, Is.Null);
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("DEC-ORD-24"), Basis("共通仕様 6 節（DB は妥当性を保証しない）")]
+        public void OrdTfDetail_商品マスタに無い明細は含めない()
+        {
+            int exists = data.NewProduct(mark: 'A');
+            int gone = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 5.00m);
+            data.NewDetail(o, exists, 10.00m, 2, 0f);
+            data.NewDetail(o, gone, 100.00m, 1, 0f);
+            data.DeleteProduct(gone);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(rv.Lines.Count, Is.EqualTo(1));
+            Assert.That(rv.Lines[0].ProductName, Is.EqualTo(data.ProductNames[exists]));
+            Assert.That(rv.Subtotal, Is.EqualTo(20.00m));
+            Assert.That(rv.Total, Is.EqualTo(25.00m));
+        }
+
+        [Test, Basis("DEC-ORD-25"), Basis("SC-ORD-02-I17"), Basis("共通仕様 3 節（金額の算出式）")]
+        public void OrdTfDetail_割引率は端数も0も10進数で返る()
+        {
+            int pa = data.NewProduct(mark: 'A');
+            int pm = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 0m);
+            data.NewDetail(o, pa, 100.00m, 1, 0.125f);
+            data.NewDetail(o, pm, 20.00m, 1, 0f);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.Lines.Count, Is.EqualTo(2));
+            OrdTfDetailLine a = rv.Lines[0], m = rv.Lines[1];
+            Assert.That(a.Discount, Is.EqualTo(0.125m)); Assert.That(a.Price, Is.EqualTo(87.50m)); Assert.That(a.Amount, Is.EqualTo(87.50m));
+            Assert.That(m.Discount, Is.EqualTo(0m)); Assert.That(m.Price, Is.EqualTo(20.00m)); Assert.That(m.Amount, Is.EqualTo(20.00m));
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("ERR-NOTFOUND")]
+        public void OrdTfDetail_存在しない受注はERR_NOTFOUND()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotFound));
+        }
+
+        // ---------------------------------------------------------------- 3.2 受注の削除
+
+        [Test, Basis("EV-ORD-203"), Basis("ORD-T8")]
+        public void OrdTfDelete_受注と明細が消える()
+        {
+            int p1 = data.NewProduct(mark: 'A');
+            int p2 = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            data.NewDetail(o, p1, 10.00m, 1, 0f);
+            data.NewDetail(o, p2, 20.00m, 1, 0f);
+
+            OrdTfReturnValue rv = Delete(o, TestData.GetRowVersion(o));
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(TestData.CountOrders(o), Is.EqualTo(0));
+            Assert.That(TestData.CountDetails(o), Is.EqualTo(0));
+        }
+
+        [Test, Basis("EV-ORD-203")]
+        public void OrdTfDelete_ほかの受注と明細は消えない()
+        {
+            int p1 = data.NewProduct(mark: 'A');
+            int p2 = data.NewProduct(mark: 'M');
+            int p3 = data.NewProduct(mark: 'X');
+            int o1 = data.NewOrder(orderDate: D(2199, 3, 1));
+            int o2 = data.NewOrder(orderDate: D(2199, 3, 1), freight: 12.34m);
+            data.NewDetail(o1, p1, 10.00m, 1, 0f);
+            data.NewDetail(o1, p2, 20.00m, 1, 0f);
+            data.NewDetail(o2, p3, 30.00m, 2, 0f);
+            OrdTfReturnValue before = Detail(o2);
+
+            OrdTfReturnValue rv = Delete(o1, TestData.GetRowVersion(o1));
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(TestData.CountOrders(o1), Is.EqualTo(0));
+            Assert.That(TestData.CountDetails(o1), Is.EqualTo(0));
+            Assert.That(TestData.CountOrders(o2), Is.EqualTo(1));
+            Assert.That(TestData.CountDetails(o2), Is.EqualTo(1));
+            OrdTfReturnValue after = Detail(o2);
+            Assert.That(after.Freight, Is.EqualTo(before.Freight));
+            Assert.That(after.Subtotal, Is.EqualTo(before.Subtotal));
+            Assert.That(after.Lines.Select(l => l.ProductName).ToList(), Is.EqualTo(before.Lines.Select(l => l.ProductName).ToList()));
+        }
+
+        [Test, Basis("EV-ORD-203"), Basis("DEC-CMN-02")]
+        public void OrdTfDelete_明細が無い受注も消える()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+
+            OrdTfReturnValue rv = Delete(o, TestData.GetRowVersion(o));
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(TestData.CountOrders(o), Is.EqualTo(0));
+        }
+
+        [Test, Basis("EV-ORD-203"), Basis("ERR-CONFLICT"), Basis("共通仕様 9.1 節")]
+        public void OrdTfDelete_行バージョンが違えばERR_CONFLICTでロールバック()
+        {
+            int p1 = data.NewProduct(mark: 'A');
+            int p2 = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 5.00m);
+            data.NewDetail(o, p1, 10.00m, 1, 0f);
+            data.NewDetail(o, p2, 20.00m, 1, 0f);
+            TestData.BumpOrder(o, 99.00m);   // 行バージョン = 2
+
+            OrdTfReturnValue rv = Delete(o, 1);   // 古い値
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgConflict));
+            Assert.That(TestData.CountOrders(o), Is.EqualTo(1));
+            Assert.That(TestData.CountDetails(o), Is.EqualTo(2), "明細も消えない（ロールバック）");
+            Assert.That(TestData.GetRowVersion(o), Is.EqualTo(2));
+            Assert.That(Detail(o).Freight, Is.EqualTo(99.00m));
+        }
+
+        [Test, Basis("EV-ORD-203"), Basis("ERR-NOTFOUND"), Basis("共通仕様 9.1 節")]
+        public void OrdTfDelete_存在しない受注はERR_NOTFOUND()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = Delete(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotFound));
+        }
+
+        [Test, Basis("EV-ORD-203"), Basis("ERR-NOTFOUND")]
+        public void OrdTfDelete_消した受注をもう一度消すとERR_NOTFOUND()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+
+            OrdTfReturnValue first = Delete(o, 1);
+            OrdTfReturnValue second = Delete(o, 1);
+
+            Assert.That(first.ErrorFlag, Is.False, "1 回目");
+            Assert.That(second.ErrorFlag, Is.True, "2 回目");
+            Assert.That(second.ErrorMessage, Is.EqualTo(MsgNotFound));
+        }
     }
 }

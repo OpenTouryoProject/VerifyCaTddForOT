@@ -15,6 +15,7 @@
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。戻り値を設定するだけの空の UOC）
 //*  2026/11/13  実装役            実装（Green）：EV-ORD-101 の選択肢、EV-ORD-102・EV-ORD-104 の検索・ページ
 //*  2026/11/15  実装役            EV-ORD-105 の並べ替え（SortColumn・SortDescending を SQL 定義の ORDER BY へ）
+//*  2026/11/24  実装役            EV-ORD-201・203（OrdTfDetail・OrdTfDelete）の空の UOC（テスト先行の Red 用）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -171,6 +172,32 @@ namespace WSServer_sample.Business
                 rv.Rows.Add(row);
             }
 
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>受注詳細（照会）の読み込み（EV-ORD-201）。Red 用の空の実装</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfDetail(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+            // （段 4 で実装する）
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>受注の削除（EV-ORD-203）。Red 用の空の実装</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfDelete(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+            // （段 4 で実装する）
             // ↑業務処理-----------------------------------------------------
         }
 

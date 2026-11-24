@@ -20,12 +20,16 @@ namespace MVC_Sample.E2ETests
         private readonly List<int> employees = new List<int>();
         private readonly List<int> shippers = new List<int>();
         private readonly List<int> orders = new List<int>();
+        private readonly List<int> products = new List<int>();
 
         /// <summary>顧客の名前の記録（CustomerID → CompanyName）</summary>
         public readonly Dictionary<string, string> CustomerNames = new Dictionary<string, string>();
 
         /// <summary>配送業者の名前の記録（ShipperID → CompanyName）</summary>
         public readonly Dictionary<int, string> ShipperNames = new Dictionary<int, string>();
+
+        /// <summary>商品の名前の記録（ProductID → ProductName）</summary>
+        public readonly Dictionary<int, string> ProductNames = new Dictionary<int, string>();
 
         private static string connectionString;
 
@@ -83,13 +87,17 @@ namespace MVC_Sample.E2ETests
         }
 
         /// <summary>顧客を入れる。会社名は "Tf" + 目印 + GUID 8 桁</summary>
-        public string NewCustomer(char mark = 'C', string id = null)
+        public string NewCustomer(char mark = 'C', string id = null, string phone = null, string address = null,
+            string city = null, string region = null, string postalCode = null, string country = null)
         {
             if (id == null) id = NewCustomerId();
             string name = "Tf" + mark + Guid8();
             customers.Add(id);   // 入れる前に記録する（途中で落ちても後始末できる）
-            ExecScalar("INSERT INTO Customers (CustomerID, CompanyName) VALUES (@id, @n)",
-                P("@id", SqlDbType.NChar, id), P("@n", SqlDbType.NVarChar, name));
+            ExecScalar("INSERT INTO Customers (CustomerID, CompanyName, Phone, Address, City, Region, PostalCode, Country) " +
+                "VALUES (@id, @n, @ph, @ad, @ci, @re, @po, @co)",
+                P("@id", SqlDbType.NChar, id), P("@n", SqlDbType.NVarChar, name),
+                P("@ph", SqlDbType.NVarChar, phone), P("@ad", SqlDbType.NVarChar, address), P("@ci", SqlDbType.NVarChar, city),
+                P("@re", SqlDbType.NVarChar, region), P("@po", SqlDbType.NVarChar, postalCode), P("@co", SqlDbType.NVarChar, country));
             CustomerNames[id] = name;
             return id;
         }
@@ -126,19 +134,77 @@ namespace MVC_Sample.E2ETests
 
         // ---------------------------------------------------------------- 受注・明細
 
-        /// <summary>受注を入れる。OrderID を返す（送料は既定 0。null で NULL）</summary>
+        /// <summary>受注を入れる。OrderID を返す（送料は既定 0。null で NULL。Ship* は既定 NULL）</summary>
         public int NewOrder(string customerId = null, int? employeeId = null, DateTime? orderDate = null,
-            DateTime? requiredDate = null, DateTime? shippedDate = null, int? shipVia = null, decimal? freight = 0m)
+            DateTime? requiredDate = null, DateTime? shippedDate = null, int? shipVia = null, decimal? freight = 0m,
+            string shipName = null, string shipAddress = null, string shipCity = null, string shipRegion = null,
+            string shipPostalCode = null, string shipCountry = null)
         {
             int id = Convert.ToInt32(ExecScalar(
-                "INSERT INTO Orders (CustomerID, EmployeeID, OrderDate, RequiredDate, ShippedDate, ShipVia, Freight) " +
-                "VALUES (@c, @e, @od, @rd, @sd, @sv, @fr); SELECT CAST(SCOPE_IDENTITY() AS int);",
+                "INSERT INTO Orders (CustomerID, EmployeeID, OrderDate, RequiredDate, ShippedDate, ShipVia, Freight, " +
+                "ShipName, ShipAddress, ShipCity, ShipRegion, ShipPostalCode, ShipCountry) " +
+                "VALUES (@c, @e, @od, @rd, @sd, @sv, @fr, @sn, @sa, @sc, @sr, @sp, @sy); SELECT CAST(SCOPE_IDENTITY() AS int);",
                 P("@c", SqlDbType.NChar, customerId), P("@e", SqlDbType.Int, employeeId),
                 P("@od", SqlDbType.DateTime, orderDate), P("@rd", SqlDbType.DateTime, requiredDate),
                 P("@sd", SqlDbType.DateTime, shippedDate), P("@sv", SqlDbType.Int, shipVia),
-                P("@fr", SqlDbType.Money, freight)));
+                P("@fr", SqlDbType.Money, freight),
+                P("@sn", SqlDbType.NVarChar, shipName), P("@sa", SqlDbType.NVarChar, shipAddress),
+                P("@sc", SqlDbType.NVarChar, shipCity), P("@sr", SqlDbType.NVarChar, shipRegion),
+                P("@sp", SqlDbType.NVarChar, shipPostalCode), P("@sy", SqlDbType.NVarChar, shipCountry)));
             orders.Add(id);
             return id;
+        }
+
+        /// <summary>商品を入れる。ProductID を返す（名前の既定は "Tf" + GUID 8 桁。mark 指定時は "Tf" + 目印 + GUID 8 桁。在庫 null で NULL）</summary>
+        public int NewProduct(string name = null, bool discontinued = false, int? unitsInStock = 0, char? mark = null)
+        {
+            if (name == null) name = mark.HasValue ? "Tf" + mark.Value + Guid8() : "Tf" + Guid8();
+            int id = Convert.ToInt32(ExecScalar(
+                "INSERT INTO Products (ProductName, UnitsInStock, Discontinued) VALUES (@n, @s, @d); SELECT CAST(SCOPE_IDENTITY() AS int);",
+                P("@n", SqlDbType.NVarChar, name), P("@s", SqlDbType.SmallInt, unitsInStock), P("@d", SqlDbType.Bit, discontinued)));
+            products.Add(id);
+            ProductNames[id] = name;
+            return id;
+        }
+
+        /// <summary>商品を消す（明細は消さない。商品マスタに無い明細を作る）</summary>
+        public void DeleteProduct(int productId)
+        {
+            ExecScalar("DELETE FROM Products WHERE ProductID = @p", P("@p", SqlDbType.Int, productId));
+        }
+
+        // ---------------------------------------------------------------- DB の状態を読む・他の利用者の操作を模す
+
+        /// <summary>受注の件数（OrderID 指定）</summary>
+        public static int CountOrders(int orderId)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT COUNT(*) FROM Orders WHERE OrderID = @o", P("@o", SqlDbType.Int, orderId)));
+        }
+
+        /// <summary>明細の件数（OrderID 指定）</summary>
+        public static int CountDetails(int orderId)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT COUNT(*) FROM [Order Details] WHERE OrderID = @o", P("@o", SqlDbType.Int, orderId)));
+        }
+
+        /// <summary>受注の行バージョン</summary>
+        public static int GetRowVersion(int orderId)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT RowVersion FROM Orders WHERE OrderID = @o", P("@o", SqlDbType.Int, orderId)));
+        }
+
+        /// <summary>他の利用者の更新を模す（送料を変え、行バージョンを +1）</summary>
+        public static void BumpOrder(int orderId, decimal freight)
+        {
+            ExecScalar("UPDATE Orders SET Freight = @f, RowVersion = RowVersion + 1 WHERE OrderID = @o",
+                P("@f", SqlDbType.Money, freight), P("@o", SqlDbType.Int, orderId));
+        }
+
+        /// <summary>他の利用者の削除を模す（明細 → 受注。記録は残す＝後始末は、無い行の削除でも落ちない）</summary>
+        public static void DeleteOrder(int orderId)
+        {
+            ExecScalar("DELETE FROM [Order Details] WHERE OrderID = @o", P("@o", SqlDbType.Int, orderId));
+            ExecScalar("DELETE FROM Orders WHERE OrderID = @o", P("@o", SqlDbType.Int, orderId));
         }
 
         /// <summary>明細を入れる（割引は real で格納される）</summary>
@@ -154,12 +220,12 @@ namespace MVC_Sample.E2ETests
         /// <summary>
         /// 顧客に受注を n 件入れる。i 番目（1 から）の受注日 = start + i 日。OrderID を i の昇順で返す。
         /// </summary>
-        public List<int> NewOrdersSequence(string customerId, int n, DateTime start)
+        public List<int> NewOrdersSequence(string customerId, int n, DateTime start, int? employeeId = null)
         {
             List<int> ids = new List<int>();
             for (int i = 1; i <= n; i++)
             {
-                ids.Add(NewOrder(customerId: customerId, orderDate: start.AddDays(i)));
+                ids.Add(NewOrder(customerId: customerId, employeeId: employeeId, orderDate: start.AddDays(i)));
             }
             return ids;
         }
@@ -201,11 +267,13 @@ namespace MVC_Sample.E2ETests
                 run("DELETE FROM Customers WHERE CustomerID = @c", P("@c", SqlDbType.NChar, c));
             foreach (int e in employees)
                 run("DELETE FROM Employees WHERE EmployeeID = @e", P("@e", SqlDbType.Int, e));
+            foreach (int p in products)
+                run("DELETE FROM Products WHERE ProductID = @p", P("@p", SqlDbType.Int, p));
             foreach (int s in shippers)
                 run("DELETE FROM Shippers WHERE ShipperID = @s", P("@s", SqlDbType.Int, s));
 
-            customers.Clear(); employees.Clear(); shippers.Clear(); orders.Clear();
-            CustomerNames.Clear(); ShipperNames.Clear();
+            customers.Clear(); employees.Clear(); shippers.Clear(); orders.Clear(); products.Clear();
+            CustomerNames.Clear(); ShipperNames.Clear(); ProductNames.Clear();
 
             if (first != null) throw first;
         }

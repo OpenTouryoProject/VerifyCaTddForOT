@@ -15,6 +15,7 @@
 //*  2026/11/13  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
 //*  2026/11/13  実装役            実装（段 4。EV-ORD-101・102・104）
 //*  2026/11/15  実装役            EV-ORD-105（一覧の並べ替え）を追加（Sort アクション。並べ替えの列・方向を hidden で保持）
+//*  2026/11/24  実装役            Red 用の空の土台（Detail・Back。段 2。EV-ORD-201・206 は段 4 で実装する）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -301,6 +302,33 @@ namespace MVC_Sample.Controllers
         {
             ModelState.Clear();
             return View("Index", model);
+        }
+
+        #endregion
+
+        #region 受注詳細（Detail・Back）
+
+        /// <summary>
+        /// 受注詳細（照会）のページ読み込み（EV-ORD-201）。Red 用の空の土台（要素なし）
+        /// GET: /OrdTf/Detail?id=
+        /// </summary>
+        /// <param name="id">受注 ID</param>
+        /// <returns>画面（IActionResult）</returns>
+        [HttpGet]
+        public IActionResult Detail(int id)
+        {
+            return View("Detail");
+        }
+
+        /// <summary>
+        /// 一覧への復帰（EV-ORD-206）。Red 用の空の土台（段 4 で実装する）
+        /// GET: /OrdTf/Back
+        /// </summary>
+        /// <returns>未実装（NotFound）</returns>
+        [HttpGet]
+        public IActionResult Back()
+        {
+            return NotFound();
         }
 
         #endregion

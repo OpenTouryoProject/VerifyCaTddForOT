@@ -14,6 +14,7 @@
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。契約はテスト仕様 1.2）
 //*  2026/11/15  実装役            並べ替えのメンバ（SortColumn・SortDescending）を追加（EV-ORD-105。Red の足場）
+//*  2026/11/24  実装役            受注詳細・削除のメンバ（OrderID・RowVersion）を追加（EV-ORD-201・203。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -53,6 +54,12 @@ namespace WSIFType_sample
 
         /// <summary>true = 降順、false = 昇順（SortColumn が空のときは無視する）</summary>
         public bool SortDescending;
+
+        /// <summary>対象の受注 ID（OrdTfDetail・OrdTfDelete）</summary>
+        public int OrderID;
+
+        /// <summary>画面が保持していた Orders.RowVersion（OrdTfDelete）</summary>
+        public int RowVersion;
 
         /// <summary>コンストラクタ</summary>
         public OrdTfParameterValue(string screenId, string controlId, string methodName, string actionType, MyUserInfo user)
