@@ -16,6 +16,7 @@
 //*  2026/11/13  実装役            実装（Green）：EV-ORD-101 の選択肢、EV-ORD-102・EV-ORD-104 の検索・ページ
 //*  2026/11/15  実装役            EV-ORD-105 の並べ替え（SortColumn・SortDescending を SQL 定義の ORDER BY へ）
 //*  2026/11/24  実装役            EV-ORD-201・203（OrdTfDetail・OrdTfDelete）の空の UOC（テスト先行の Red 用）
+//*  2026/11/24  実装役            実装（Green）：EV-ORD-201 の詳細の読み込み、EV-ORD-203 の削除（明細 → 受注。業務例外でロールバック）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -52,6 +53,24 @@ namespace WSServer_sample.Business
 
         /// <summary>日付の前後関係の違反（EV-ORD-102 検証内容）</summary>
         private const string MsgRelation = "受注日の開始は終了以前を指定してください。";
+
+        /// <summary>メッセージ ID（DEC-CMN-01）</summary>
+        private const string MsgIdNotFound = "ORDTF003";
+
+        /// <summary>メッセージ ID（DEC-CMN-01）</summary>
+        private const string MsgIdConflict = "ORDTF004";
+
+        /// <summary>ERR-NOTFOUND（共通仕様 7 節）</summary>
+        private const string MsgNotFound = "対象のデータは存在しません。";
+
+        /// <summary>ERR-CONFLICT（共通仕様 7 節）</summary>
+        private const string MsgConflict = "他の利用者によって更新されています。最新の内容を読み込み直してください。";
+
+        /// <summary>廃番商品の商品名への付記（EV-ORD-201 手順 6）</summary>
+        private const string DiscontinuedMark = "（廃番）";
+
+        /// <summary>顧客住所の連結の区切り（DEC-ORD-18：区切りは定めない。実装は半角空白）</summary>
+        private const string AddressSeparator = " ";
 
         /// <summary>項目名（ErrorFields）：受注日（開始）</summary>
         private const string FieldFrom = "OrderDateFrom";
@@ -175,7 +194,7 @@ namespace WSServer_sample.Business
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>受注詳細（照会）の読み込み（EV-ORD-201）。Red 用の空の実装</summary>
+        /// <summary>受注詳細（照会）の読み込み（EV-ORD-201）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfDetail(OrdTfParameterValue pv)
         {
@@ -184,11 +203,72 @@ namespace WSServer_sample.Business
             this.ReturnValue = rv;
 
             // ↓業務処理-----------------------------------------------------
-            // （段 4 で実装する）
+
+            // 1. 受注 1 件（顧客・担当者・配送業者は外部結合）。0 件は ERR-NOTFOUND（手順 1・2）
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDetailHeader.sql";
+            dao.SetParameter("OrderID", pv.OrderID);
+            DataTable dtHeader = new DataTable();
+            dao.ExecSelectFill_DT(dtHeader);
+            if (dtHeader.Rows.Count == 0)
+            {
+                throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
+            }
+            DataRow h = dtHeader.Rows[0];
+
+            rv.OrderID = Convert.ToInt32(h["OrderID"]);
+            rv.CustomerName = ToText(h["CustomerName"]);
+            rv.CustomerPhone = ToText(h["CustomerPhone"]);
+            rv.CustomerAddress = JoinAddress(h["CustomerAddress"], h["CustomerCity"], h["CustomerRegion"],
+                h["CustomerPostalCode"], h["CustomerCountry"]);
+            rv.EmployeeName = (h["LastName"] == DBNull.Value && h["FirstName"] == DBNull.Value)
+                ? "" : ToText(h["LastName"]) + " " + ToText(h["FirstName"]);
+            rv.OrderDate = ToDate(h["OrderDate"]);
+            rv.RequiredDate = ToDate(h["RequiredDate"]);
+            rv.ShippedDate = ToDate(h["ShippedDate"]);
+            rv.ShipperName = ToText(h["ShipperName"]);
+            rv.ShipName = ToText(h["ShipName"]);
+            rv.ShipAddress = ToText(h["ShipAddress"]);
+            rv.ShipCity = ToText(h["ShipCity"]);
+            rv.ShipRegion = ToText(h["ShipRegion"]);
+            rv.ShipPostalCode = ToText(h["ShipPostalCode"]);
+            rv.ShipCountry = ToText(h["ShipCountry"]);
+            rv.Freight = h["Freight"] == DBNull.Value ? (decimal?)null : Convert.ToDecimal(h["Freight"]);
+            rv.RowVersion = Convert.ToInt32(h["RowVersion"]);                  // 手順 7
+            rv.Status = JudgeStatus(rv.RequiredDate, rv.ShippedDate, DateTime.Today);   // 手順 5
+            rv.CanEdit = !rv.ShippedDate.HasValue;                              // 手順 8（ORD-T4）
+
+            // 2. 明細（商品名の昇順。Products は内部結合＝商品マスタに無い明細は含めない。DEC-ORD-24）
+            dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDetailLines.sql";
+            dao.SetParameter("OrderID", pv.OrderID);
+            DataTable dtLines = new DataTable();
+            dao.ExecSelectFill_DT(dtLines);
+
+            decimal subtotal = 0m;
+            foreach (DataRow dr in dtLines.Rows)
+            {
+                OrdTfDetailLine line = new OrdTfDetailLine();
+                line.ProductName = ToText(dr["ProductName"]) + (Convert.ToBoolean(dr["Discontinued"]) ? DiscontinuedMark : "");   // 手順 6
+                line.UnitPrice = Convert.ToDecimal(dr["UnitPrice"]);
+                line.Discount = Convert.ToDecimal(dr["Discount"]);   // real は SQL 側で 10 進数へ変換済み
+                line.Price = line.UnitPrice * (1m - line.Discount);   // 丸めない
+                line.Quantity = Convert.ToInt32(dr["Quantity"]);
+                line.UnitsInStock = dr["UnitsInStock"] == DBNull.Value ? (int?)null : Convert.ToInt32(dr["UnitsInStock"]);
+                // 明細金額は、価格に数量を掛けた後で小数第 3 位を四捨五入する（共通仕様 3 節）
+                line.Amount = Math.Round(line.Price * line.Quantity, 2, MidpointRounding.AwayFromZero);
+                subtotal += line.Amount;
+                rv.Lines.Add(line);
+            }
+
+            // 3. 小計・合計（明細が無ければ小計 0＝DEC-CMN-02、送料 NULL は 0＝DEC-CMN-03）
+            rv.Subtotal = subtotal;
+            rv.Total = subtotal + (rv.Freight ?? 0m);
+
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>受注の削除（EV-ORD-203）。Red 用の空の実装</summary>
+        /// <summary>受注の削除（EV-ORD-203）。1 トランザクション（業務例外でフレームワークがロールバックする）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfDelete(OrdTfParameterValue pv)
         {
@@ -197,7 +277,34 @@ namespace WSServer_sample.Business
             this.ReturnValue = rv;
 
             // ↓業務処理-----------------------------------------------------
-            // （段 4 で実装する）
+
+            // 手順 3：明細をすべて削除（ORD-T8：明細 → 受注の順）
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDeleteDetails.sql";
+            dao.SetParameter("OrderID", pv.OrderID);
+            dao.ExecInsUpDel_NonQuery();
+
+            // 手順 4：受注を、主キーと保持していた行バージョンで削除（削除では RowVersion を更新しない）
+            dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDeleteOrder.sql";
+            dao.SetParameter("OrderID", pv.OrderID);
+            dao.SetParameter("RowVersion", pv.RowVersion);
+            int deleted = dao.ExecInsUpDel_NonQuery();
+
+            if (deleted == 0)
+            {
+                // 0 件：ロールバック（業務例外でフレームワークが行う）し、受注の有無で ERR-CONFLICT と ERR-NOTFOUND を分ける
+                dao = new CmnDao(this.GetDam());
+                dao.SQLFileName = "OrdTfOrderCount.sql";
+                dao.SetParameter("OrderID", pv.OrderID);
+                int exists = Convert.ToInt32(dao.ExecSelectScalar());
+                if (exists > 0)
+                {
+                    throw new BusinessApplicationException(MsgIdConflict, MsgConflict, "");
+                }
+                throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
+            }
+
             // ↑業務処理-----------------------------------------------------
         }
 
@@ -281,6 +388,18 @@ namespace WSServer_sample.Business
 
             // 出荷済：出荷日 > 要求納期なら納期遅延
             return (required.HasValue && shipped.Value > required.Value) ? "納期遅延" : "出荷済";
+        }
+
+        /// <summary>顧客住所：Address・City・Region・PostalCode・Country の空（NULL・空白だけ）の要素を詰めて連結（SC-ORD-02-I05）</summary>
+        private static string JoinAddress(params object[] parts)
+        {
+            System.Collections.Generic.List<string> list = new System.Collections.Generic.List<string>();
+            foreach (object p in parts)
+            {
+                string s = ToText(p);
+                if (!string.IsNullOrWhiteSpace(s)) list.Add(s);
+            }
+            return string.Join(AddressSeparator, list);
         }
 
         /// <summary>NULL は空文字（共通仕様 4 節）</summary>

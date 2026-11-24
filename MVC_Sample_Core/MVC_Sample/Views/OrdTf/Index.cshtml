@@ -15,6 +15,7 @@
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/13  実装役            新規作成（net48 版 MVC_Sample と同じ構成。Core 用に確認した）
     //*  2026/11/15  実装役            一覧の並べ替え（EV-ORD-105）：見出しのボタン・保持の hidden・並べ替え列の印（aria-sort と CSS）
+    //*  2026/11/24  実装役            受注 ID を詳細へのリンクにし、新規登録（#btnNew）を足した（EV-ORD-106・107。決定 4）
     //**********************************************************************************
 *@
 
@@ -120,6 +121,10 @@
     </div>
 
     @* 検索結果（SC-ORD-01-I06〜I08） *@
+    @* 新規登録（B03。一覧の上部。遷移だけなのでメインボタンに含めない＝決定 4。一覧状態は操作のたびに Session へ保持済み。EV-ORD-107） *@
+    <div class="mb-2">
+        <a id="btnNew" class="btn btn-primary" href="@Url.Content("~/OrdTf/Edit?mode=new")">新規登録</a>
+    </div>
     <div>
         <span id="totalCount">全 @Model.TotalCount 件</span>
     </div>
@@ -140,7 +145,7 @@
             @foreach (OrdTfRow row in Model.Rows)
             {
                 <tr class="@(row.Status == "納期遅延" ? "table-danger" : "")">
-                    <td>@row.OrderID</td>
+                    <td><a href="@Url.Content("~/OrdTf/Detail")?id=@(row.OrderID)">@row.OrderID</a></td>
                     <td>@row.CustomerName</td>
                     <td>@row.EmployeeName</td>
                     <td>@(row.OrderDate.HasValue ? row.OrderDate.Value.ToString("yyyy/MM/dd", inv) : "")</td>

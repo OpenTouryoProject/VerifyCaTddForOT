@@ -16,6 +16,7 @@
 //*  2026/11/13  実装役            実装（段 4。EV-ORD-101・102・104）
 //*  2026/11/15  実装役            EV-ORD-105（一覧の並べ替え）を追加（Sort アクション。並べ替えの列・方向を hidden で保持）
 //*  2026/11/24  実装役            Red 用の空の土台（Detail・Back。段 2。EV-ORD-201・206 は段 4 で実装する）
+//*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203・206：Detail・Delete・Back。一覧状態は Session に保持）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -24,9 +25,11 @@ using MVC_Sample.Models.ViewModels;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -77,6 +80,7 @@ namespace MVC_Sample.Controllers
             // 検索条件は未指定、ページは 1（保持された一覧状態の復元は範囲外）
             this.Retain(model, model.CustomerID, model.EmployeeID, model.OrderDateFrom, model.OrderDateTo, model.ShippedStatus);
             await this.ExecuteSearch(model, 1);
+            this.SaveState(model);   // 既定の一覧状態（直接開いたときは保持した状態を使わない。DEC-ORD-20）
 
             return this.Display(model);
         }
@@ -112,6 +116,7 @@ namespace MVC_Sample.Controllers
                 this.Retain(model, model.CustomerID, model.EmployeeID, model.OrderDateFrom, model.OrderDateTo, model.ShippedStatus);
                 this.ShowList(model, rv);
                 this.RetainPage(model, rv);
+                this.SaveState(model);
             }
 
             return this.Display(model);
@@ -148,6 +153,7 @@ namespace MVC_Sample.Controllers
                 model.PSortColumn, model.PSortDescending);
             this.ShowList(model, rv);
             this.RetainPage(model, rv);   // 取り直した総ページ数での最終ページを含む（DEC-ORD-06）
+            this.SaveState(model);
 
             return this.Display(model);
         }
@@ -188,6 +194,7 @@ namespace MVC_Sample.Controllers
                 model.PSortColumn, model.PSortDescending);
             this.ShowList(model, rv);
             this.RetainPage(model, rv);
+            this.SaveState(model);
 
             return this.Display(model);
         }
@@ -306,29 +313,156 @@ namespace MVC_Sample.Controllers
 
         #endregion
 
-        #region 受注詳細（Detail・Back）
+        #region 受注詳細・一覧への復帰（Detail・Delete・Back）
+
+        /// <summary>Session のキー：一覧状態（OrdTfListState の JSON）</summary>
+        private const string StateKey = "OrdTfListState";
+
+        /// <summary>TempData のキー：一覧へ戻ったときの共通メッセージ領域の文言・種類</summary>
+        private const string TempMessage = "OrdTfMessage";
+        private const string TempIsError = "OrdTfMessageIsError";
 
         /// <summary>
-        /// 受注詳細（照会）のページ読み込み（EV-ORD-201）。Red 用の空の土台（要素なし）
+        /// 受注詳細（照会）のページ読み込み（EV-ORD-201）
         /// GET: /OrdTf/Detail?id=
         /// </summary>
         /// <param name="id">受注 ID</param>
-        /// <returns>画面（IActionResult）</returns>
+        /// <returns>画面（IActionResult）。受注が無ければ一覧へ戻る（ERR-NOTFOUND）</returns>
         [HttpGet]
-        public IActionResult Detail(int id)
+        public async Task<IActionResult> Detail(int id)
         {
-            return View("Detail");
+            OrdTfReturnValue rv = await this.CallDetail(id);
+            if (rv.ErrorFlag)
+            {
+                return this.BackWithMessage(rv.ErrorMessage, true);
+            }
+            return View("Detail", new OrdTfDetailViewModel { Data = rv });
         }
 
         /// <summary>
-        /// 一覧への復帰（EV-ORD-206）。Red 用の空の土台（段 4 で実装する）
+        /// 受注の削除（EV-ORD-203。確認ダイアログはビューの window.confirm）
+        /// POST: /OrdTf/Delete
+        /// </summary>
+        /// <param name="id">受注 ID</param>
+        /// <param name="rowVersion">画面が保持していた Orders.RowVersion</param>
+        /// <returns>一覧（完了・ERR-NOTFOUND）または詳細の再表示（ERR-CONFLICT）</returns>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id, int rowVersion)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfDelete", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            pv.RowVersion = rowVersion;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+
+            if (!rv.ErrorFlag)
+            {
+                // 手順 6：完了メッセージ（情報）を出し、保持された一覧状態で一覧へ（一覧は再検索する）
+                return this.BackWithMessage("受注 ID " + id + " を削除しました。", false);
+            }
+
+            // 失敗：最新を読み直す。受注が無ければ ERR-NOTFOUND（一覧へ）、あれば ERR-CONFLICT（最新を再表示）
+            OrdTfReturnValue latest = await this.CallDetail(id);
+            if (latest.ErrorFlag)
+            {
+                return this.BackWithMessage(latest.ErrorMessage, true);
+            }
+            return View("Detail", new OrdTfDetailViewModel { Data = latest, Message = rv.ErrorMessage, MessageIsError = true });
+        }
+
+        /// <summary>
+        /// 一覧への復帰（EV-ORD-206・EV-ORD-101 手順 3）：保持された一覧状態を復元して再検索する。無ければ既定の一覧
         /// GET: /OrdTf/Back
         /// </summary>
-        /// <returns>未実装（NotFound）</returns>
+        /// <returns>一覧（IActionResult）</returns>
         [HttpGet]
-        public IActionResult Back()
+        public async Task<IActionResult> Back()
         {
-            return NotFound();
+            OrdTfViewModel model = new OrdTfViewModel();
+            await this.BuildChoices(model);
+
+            OrdTfListState st = this.LoadState();
+            if (st == null)
+            {
+                st = new OrdTfListState { ShippedStatus = StatusValues[0], PageNo = 1 };
+            }
+
+            // 入力欄と保持する状態を、保持された一覧状態で復元する（最後に実行した検索の条件。DEC-ORD-19）
+            model.CustomerID = st.CustomerID;
+            model.EmployeeID = st.EmployeeID;
+            model.OrderDateFrom = st.OrderDateFrom;
+            model.OrderDateTo = st.OrderDateTo;
+            model.ShippedStatus = st.ShippedStatus;
+            this.Retain(model, st.CustomerID, st.EmployeeID, st.OrderDateFrom, st.OrderDateTo, st.ShippedStatus);
+            model.PSortColumn = st.SortColumn;
+            model.PSortDescending = st.SortDescending;
+
+            // 戻ったときのメッセージ（削除の完了・ERR-NOTFOUND）
+            string msg = TempData[TempMessage] as string;
+            if (msg != null)
+            {
+                model.Message = msg;
+                model.MessageIsError = TempData[TempIsError] is bool b && b;
+            }
+
+            // 再検索する（復元するページが無くなっていたら B層が最終ページにする。DEC-ORD-23）
+            await this.ExecuteSearch(model, st.PageNo < 1 ? 1 : st.PageNo);
+            this.SaveState(model);
+
+            return this.Display(model);
+        }
+
+        /// <summary>
+        /// 受注登録・編集（SC-ORD-03）への遷移先（EV-ORD-107）。この回は画面が無く、URL までを作る（次の回で実装する）。
+        /// 一覧状態は一覧の操作のたびに Session へ保持済み
+        /// GET: /OrdTf/Edit?mode=new
+        /// </summary>
+        /// <param name="mode">モード（new = 登録）</param>
+        /// <returns>未実装の知らせ（404。本文を持たせる＝ブラウザのエラー画面にしない）</returns>
+        [HttpGet]
+        public IActionResult Edit(string mode)
+        {
+            return StatusCode(404, "受注の登録・編集（SC-ORD-03）は、次の回で作成します。");
+        }
+
+        /// <summary>B層（OrdTfDetail）を呼ぶ</summary>
+        private async Task<OrdTfReturnValue> CallDetail(int id)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfDetail", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            return (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+        }
+
+        /// <summary>メッセージを持たせて、一覧への復帰（/OrdTf/Back）へ移る</summary>
+        private IActionResult BackWithMessage(string message, bool isError)
+        {
+            TempData[TempMessage] = message;
+            TempData[TempIsError] = isError;
+            return RedirectToAction("Back");
+        }
+
+        /// <summary>一覧状態（最後に実行した検索の条件・現在ページ・並べ替え）を Session に保持する</summary>
+        private void SaveState(OrdTfViewModel model)
+        {
+            OrdTfListState st = new OrdTfListState
+            {
+                CustomerID = model.PCustomerID,
+                EmployeeID = model.PEmployeeID,
+                OrderDateFrom = model.POrderDateFrom,
+                OrderDateTo = model.POrderDateTo,
+                ShippedStatus = model.PShippedStatus,
+                SortColumn = model.PSortColumn,
+                SortDescending = model.PSortDescending,
+                PageNo = model.PPageNo
+            };
+            HttpContext.Session.SetString(StateKey, JsonSerializer.Serialize(st));
+        }
+
+        /// <summary>保持された一覧状態を読む（無ければ null）</summary>
+        private OrdTfListState LoadState()
+        {
+            string json = HttpContext.Session.GetString(StateKey);
+            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<OrdTfListState>(json);
         }
 
         #endregion
