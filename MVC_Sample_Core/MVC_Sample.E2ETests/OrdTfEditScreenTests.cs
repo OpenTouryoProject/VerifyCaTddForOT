@@ -920,7 +920,7 @@ namespace MVC_Sample.E2ETests
         public async Task 保存_編集で消されていたらERR_NOTFOUNDで一覧へ()
         {
             Ctx c = NewCtx();
-            List<int> ids = data.NewOrdersSequence(c.K, 25, Start2198);
+            List<int> ids = data.NewOrdersSequence(c.K, 25, Start2198, employeeId: c.E);
             data.NewDetail(ids[4], c.P1, 10.00m, 1, 0f);
             await ListSearchAsync(c.K);
             await ClickAsync("#btnPageNext");

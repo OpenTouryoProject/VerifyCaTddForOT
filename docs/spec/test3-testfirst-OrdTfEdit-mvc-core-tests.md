@@ -1,13 +1,13 @@
 ﻿# テスト仕様：受注詳細（登録・編集）OrdTfEdit（ケース2：MVC_Sample_Core ＝ net10.0 ASP.NET Core MVC）
 
-起こした仕様の版：NorthwindDbSampleSpec@693e663（ブランチ proxy/ord-management。da98653 からの差分は決定記録 DEC-ORD-29〜47 の追加と索引の件数だけで、期待は変わらない。本文 `HLD/Common.md`・`HLD/UI_FlowList.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`〔DEC-CMN-01〜07〕・`LLD/Decisions/Orders.md`〔DEC-ORD-01〜47〕を合わせて読んだ）
+起こした仕様の版：NorthwindDbSampleSpec@a724ca5（ブランチ proxy/ord-management。da98653 からの差分は決定記録 DEC-ORD-29〜49 の追加と索引の件数だけ〔693e663 → cb427e9 は DEC-ORD-48、cb427e9 → a724ca5 は DEC-ORD-49 の 1 節と件数だけ〕で、期待は変わらない。本文 `HLD/Common.md`・`HLD/UI_FlowList.md`・`LLD/EventSpec/Orders.md`・`LLD/UI_ElementsAndEventList/Orders.md`・`LLD/TableSchema/Orders.md` と、決定記録 `LLD/Decisions/Common.md`〔DEC-CMN-01〜07〕・`LLD/Decisions/Orders.md`〔DEC-ORD-01〜49〕を合わせて読んだ）
 規約：`docs/spec/cmn-framework.md` の「画面共通」「MVC」、`docs/spec/cmn-testfirst.md`、`docs/spec/test3-testfirst-OrdTfEdit.md`、`docs/plan/cmn-testfirst.md` の「B層を共用する構成」
 前の回：[受注一覧](./test3-testfirst-OrdTf-mvc-core-tests.md)・[受注詳細（照会・削除）](./test3-testfirst-OrdTfDetail-mvc-core-tests.md)（承認・実装済み。このケースはその上に足す）。決定のレポート：[test3-testfirst-OrdTfEdit-mvc-core-decisions.md](./test3-testfirst-OrdTfEdit-mvc-core-decisions.md)
 
 対象：`SC-ORD-03`（`I01`〜`I18`、`B01`〜`B04`）、`EV-ORD-301`〜`309`、`EV-ORD-202`（詳細の「編集」から編集モードへ）。
 範囲外：`SC-ORD-04`・`05` とそこへの遷移（`EV-ORD-108`・`204`・`205`）、F-3 のうちキャンセル以外の離脱（ヘッダのメニューなど）。
 
-> **仕様の決定は 6 章（決定 1〜19。記録は NorthwindDbSampleSpec@693e663 の DEC-ORD-29〜47。決定 N → DEC-ORD-(28+N)）。** 答えは決定のレポートの「判断」（代行が決めた）。根拠は DEC-ORD-29〜47 で書く。推奨と違う答えは DEC-ORD-36（NULL）だけ。決定の記録が無い項目は、期待にしない。
+> **仕様の決定は 6 章（決定 1〜21。記録は NorthwindDbSampleSpec@a724ca5 の DEC-ORD-29〜49、決定 N → DEC-ORD-(28+N)）。** 答えは決定のレポートの「判断」（代行が決めた）。根拠は DEC-ORD-29〜49 で書く。推奨と違う答えは DEC-ORD-36（NULL）だけ。決定の記録が無い項目は、期待にしない。
 
 ## 0. 進め方の前提
 
@@ -190,6 +190,7 @@
 | OrdTfSave_商品の重複 | VAL-DUP, OD-T1, DEC-CMN-04 | 明細 2 行に同じ商品 P1 | ErrorFlag = true。ErrorMessages に「同一商品の明細が重複しています。」を含む。ErrorFields が空 |
 | OrdTfSave_明細が0行 | ORD-T5, ERR-BIZ | SaveLines が空 | ErrorFlag = true。ErrorMessages に「明細を 1 行以上入力してください。」を含む |
 | OrdTfSave_新規の廃番商品は指定できない | OD-T3, ERR-BIZ | 明細の商品が廃番の商品 Q | ErrorFlag = true。ErrorMessages に「廃番商品は指定できません。」を含む |
+| OrdTfSave_登録でOriginalProductIDを付けても新規の廃番商品は指定できない | OD-T3, EV-ORD-308 検証内容（個別：廃番。編集モードで読み込み時から存在する行は対象外）, ERR-BIZ | 明細の商品を廃番の商品 Q にし、**`OriginalProductID` = Q（`OriginalUnitPrice`・`OriginalDiscount`・`OriginalQuantity` も付ける）**。Mode = "new" | ErrorFlag = true。ErrorMessages に「廃番商品は指定できません。」を含む。受注が入らない（`AssertNothingSaved`） |
 | OrdTfSave_違反は全部まとめて返す | EV-ORD-308 手順 1（全エラーを表示）, VAL-*, DEC-CMN-04・05 | 登録で：顧客を空、受注日 `2199/04/02` かつ要求納期 `2199/04/01`、送料 `-1`、明細 2 行（同じ商品 P1・数量 `0`） | ErrorFlag = true。ErrorFields が `CustomerID`・`Freight`・`Lines[0].Quantity`・`Lines[1].Quantity` を含む。ErrorMessages が「同一商品の明細が重複しています。」と関連チェックの 2 件。受注は入らない |
 
 ### 3.6 `OrdTfSave` の編集（`EV-ORD-308` 手順 4）
@@ -209,14 +210,18 @@
 | OrdTfSave_編集で既存の廃番商品の行は残せる | OD-T3（読み込み時から存在する行は対象外） | o（明細：廃番の商品 Q、廃番でない P） | Q の行は変えず、P の数量だけ変える | ErrorFlag = false。Q の行が残る（Q の行は RowVersion = 1 のまま） |
 | OrdTfSave_編集で既存の廃番商品の行は値を変えても保存できる | OD-T3（読み込み時から存在する行は対象外。値の変更の有無で区別しない） | o（明細：廃番の商品 Q・数量 2） | Q の行の数量を 2 → 3（商品は変えない） | ErrorFlag = false。`GetDetails` の Q：Quantity = 3、RowVersion = 2 |
 | OrdTfSave_編集で新規に廃番商品は足せない | OD-T3, ERR-BIZ | o（明細 A） | 廃番の商品 Q の行を足す | ErrorFlag = true。ErrorMessages に「廃番商品は指定できません。」。DB は保存の前と同じ（RowVersion = 1、明細 A のみ） |
+| OrdTfSave_編集で削除の印と同じ商品の行を残しても明細は1行以上残る（TestCase：残す行は読み込み時のまま／残す行の数量を 13 に変える）（DEC-ORD-49 の条件） | ORD-T5（受注は必ず 1 件以上の明細を持つ）, EV-ORD-308 検証内容（個別：明細が 1 行以上）, DEC-ORD-49 | o（明細 A のみ） | SaveLines = [A の行（`Same(A)`＝読み込み時のまま。または数量だけ 12 → 13 に変えた行）]、`DeletedProductIDs` = [A]（同じ商品を、残す行と削除の印の両方に指定する細工した入力） | **ErrorFlag の真偽は期待にしない**（どの扱いでもよい：エラーにして DB を変えない、または削除の印を無視して行を残す）。保存の後、`GetDetails(o).Count` ≧ 1（明細が 0 行にならない）。ErrorFlag = true のときは、`GetOrder` の RowVersion = 1 で `GetDetails` が保存の前と同じ |
+| OrdTfSave_編集で読み込み時に無かった行にOriginalProductIDを付けても廃番商品は足せない | OD-T3, EV-ORD-308 検証内容（個別：廃番。編集モードで読み込み時から存在する行は対象外）, ERR-BIZ | o（明細 A。Q の明細は無い） | 廃番の商品 Q の行を足し、**`OriginalProductID` = Q（`OriginalUnitPrice`・`OriginalDiscount`・`OriginalQuantity` も付ける）** | ErrorFlag = true。ErrorMessages に「廃番商品は指定できません。」。DB は保存の前と同じ（RowVersion = 1、明細 A のみ。Q の行は入らない） |
 | OrdTfSave_編集で全明細を削除はできない | ORD-T5, ERR-BIZ | o（明細 A） | A を削除（SaveLines が空、`DeletedProductIDs` = [A]） | ErrorFlag = true。ErrorMessages に「明細を 1 行以上入力してください。」。明細 A が残る・RowVersion = 1 |
 | OrdTfSave_編集で行バージョンが違えばERR-CONFLICTでロールバック | EV-ORD-308 手順 4-2, ERR-CONFLICT | o（明細 A・M）。`BumpOrder`（送料 99.00。RowVersion = 2） | RowVersion = 1（古い値）。M の数量を変え、X を足し、A を削除 | ErrorFlag = true、ErrorMessage =「他の利用者によって更新されています。最新の内容を読み込み直してください。」。**`GetDetails` が A・M のまま（M の数量も元のまま。X は無い＝ロールバック）**、`GetOrder` の Freight = 99.00・RowVersion = 2 |
 | OrdTfSave_編集で存在しない受注はERR-NOTFOUND | EV-ORD-308 手順 4-2, ERR-NOTFOUND, 共通仕様 9.1（CONFLICT と区別） | `DeleteOrder` で消した ID | OrderID = その ID、RowVersion = 1 | ErrorFlag = true、ErrorMessage =「対象のデータは存在しません。」（CONFLICT の文言ではない）。明細・受注は入っていない |
+| OrdTfSave_編集で消された受注でも検証の違反が先に返る | EV-ORD-308 手順 1・4-2（検証が先。存在の確認は更新の手順）, ERR-VALIDATION, ERR-NOTFOUND | `DeleteOrder` で消した受注 o（明細 A を持っていた） | Mode = "edit"、OrderID = o、RowVersion = 1、送料 `-1`（ほかは有効な値） | ErrorFlag = true。ErrorFields = [`Freight`]。ErrorMessage は「対象のデータは存在しません。」ではない（受注が無くても、検証の違反が先に返る） |
 | OrdTfSave_編集の検証エラーでは何も更新しない | EV-ORD-308 手順 1, ERR-VALIDATION | o（明細 A・M） | 送料 `-1`、M の数量を `0` | ErrorFlag = true。ErrorFields = [`Freight`, `Lines[1].Quantity`]（M の行が 2 行目）。`GetOrder` の RowVersion = 1・送料 5.00、`GetDetails` が保存の前と同じ |
+| OrdTfSave_編集でも必須の欠けは違反（TestCase：顧客／担当者／受注日。値は空）（DEC-ORD-48） | VAL-REQUIRED, ORD-T1, EV-ORD-308 検証内容（モードを区別しない）, DEC-CMN-05, DEC-ORD-48 | o（明細 A。顧客・担当者・受注日に値がある） | Mode = "edit"、RowVersion = 1。該当項目（`CustomerID`／`EmployeeIDText`／`OrderDateText`）だけを空にして、ほかは読み込んだ状態のまま | ErrorFlag = true。ErrorFields = [`CustomerID`／`EmployeeID`／`OrderDate`]（1 件）。ErrorMessages が空。戻り値の OrderID は 0。`GetOrder` の RowVersion = 1・受注の各項目、`GetDetails` が保存の前と同じ |
 | OrdTfSave_編集で保存の後は古い行バージョンで保存できない | 共通仕様 9.1（`RowVersion = RowVersion + 1`）, ERR-CONFLICT | o | (1) RowVersion = 1 で保存。(2) もう一度 RowVersion = 1 で保存。(3) (1) の戻り値の RowVersion で保存 | (1) ErrorFlag = false、RowVersion = 2。(2) ErrorFlag = true、ErrorMessage が CONFLICT の文言。(3) ErrorFlag = false、RowVersion = 3 |
 | OrdTfSave_編集で他の受注の同じ商品の明細に触れない | EV-ORD-308 手順 4-3（OrderID と ProductID の一致） | o（明細 A）と o2（明細 A） | o の A の数量を変え、M を足す | o2 の明細 A の数量・RowVersion が保存の前と同じ |
 
-- 追加：**3.1 が 14 メソッド・15 ケース、3.2 が 4、3.3 が 3、3.4 が 7、3.5 が 20 メソッド・約 57 ケース（TestCase を数える）、3.6 が 17 メソッド**。段 2 の報告で実数を書く。net10.0 でも net48 でも同じ結果になること。
+- 追加：**3.1 が 14 メソッド・15 ケース、3.2 が 4、3.3 が 3、3.4 が 7、3.5 が 21 メソッド・約 58 ケース（TestCase を数える）、3.6 が 21 メソッド・約 24 ケース**。段 2 の報告で実数を書く。net10.0 でも net48 でも同じ結果になること。
 
 ## 4. 画面の E2E（`MVC_Sample_Core\MVC_Sample.E2ETests\OrdTfEditScreenTests`。新しいクラス）
 
@@ -258,7 +263,7 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 | 保存_検証エラーは項目の直下と共通メッセージ領域に出て画面に留まる | EV-ORD-308 手順 1, ERR-VALIDATION, DEC-CMN-04・05 | 登録。K・E を選び、受注日 `2198/04/02`、要求納期 `2198/04/01`（関連チェックの違反）、`#Freight` に `-1`、行 1 の商品を空、`#ShipName` に `手入力` | `#btnMain1` | 編集画面に留まる（`#orderId` =「（登録時に採番）」）。`#FreightError`・`.line-product-error` が空でなく `text-danger`。`#OrderDateError`・`#RequiredDateError` は空。`#messageArea` が空でなく `text-danger`（関連チェックの 1 件。項目単位の文言は含めない）。入力値（`#ShipName` = `手入力`、`#OrderDate` など）が保持される。DB：K の受注が 0 件 |
 | 保存_編集に成功すると詳細へ遷移し最新が出る | EV-ORD-308 手順 4・6, ORD-T4 | 受注 1 件（明細 A・M、送料 `5.00`、Ship* の値） | 編集を開く → `#Freight` を `9`、`#ShipCity` を `Osaka`、M の数量を `5`、A の行を削除（`.line-remove`）、`#btnAddLine` で X を足す（`10.00`・0・数量 1）→ `#btnMain1` | 詳細が表示され、`#messageArea` が「受注 ID nnn を保存しました。」（`text-info`）。`#freight` = `9.00`、`#shipCity` = `Osaka`、`#detailList tbody tr` が M・X の 2 行（M の数量 5）。`#shippedDate` が空（付随。ShippedDate を NULL で SET する実装は検出しない）。DB：`GetOrder` の RowVersion = 2 |
 | 保存_他の利用者が更新していたらERR-CONFLICTで最新を再表示する | EV-ORD-308 手順 4-2, ERR-CONFLICT, 共通仕様 7 節（最新データを再表示）, DEC-ORD-34, 引き継ぎ（再表示と再送） | 受注 1 件（送料 `5.00`、明細 1 行） | 編集を開く → `#ShipCity` に `Osaka` と入れる → テストが `BumpOrder`（送料 `99.00`）→ `#btnMain1` →（再表示の後）`#ShipCity` に `Kyoto` と入れて `#btnMain1` | 1 回目の後：編集画面に留まり（`#orderId` = 受注 ID）、`#messageArea` が「他の利用者によって更新されています。最新の内容を読み込み直してください。」で `text-danger`、`#Freight` = 99（最新）、`#ShipCity` が受注の元の値（`Osaka` を捨てる）。DB の `ShipCity` は元のまま。2 回目の後：詳細が表示され `#messageArea` が「受注 ID nnn を保存しました。」（`text-info`）、`#shipCity` = `Kyoto`、`#freight` = `99.00` |
-| 保存_編集で消されていたらERR-NOTFOUNDで一覧へ | EV-ORD-308 手順 4-2, ERR-NOTFOUND, 画面遷移 F-4 | K の受注 25 件（i 番目 = `2198/01/01` + i 日）。一覧状態を保持するため `/OrdTf` で K を検索 → 次へ → 先頭行を選ぶ（詳細）→ `#btnEdit` | 編集画面で入力を変える → テストがその受注を `DeleteOrder` → `#btnMain1` | 一覧が表示される。`#messageArea` が「対象のデータは存在しません。」で `text-danger`。保持された一覧状態：`#CustomerID` = K、`#pageInfo` = 「2 / 2 ページ」、`#totalCount` = 「全 24 件」、一覧 4 行 |
+| 保存_編集で消されていたらERR-NOTFOUNDで一覧へ | EV-ORD-308 手順 1・4-2（検証が先。担当者が必須＝VAL-REQUIRED）, ERR-NOTFOUND, 画面遷移 F-4 | K の受注 25 件（**担当者 E**。i 番目 = `2198/01/01` + i 日。担当者が NULL の受注は、編集の保存で `VAL-REQUIRED` が先に返るので使わない）。一覧状態を保持するため `/OrdTf` で K を検索 → 次へ → 先頭行を選ぶ（詳細）→ `#btnEdit` | 編集画面で入力を変える → テストがその受注を `DeleteOrder` → `#btnMain1` | 一覧が表示される。`#messageArea` が「対象のデータは存在しません。」で `text-danger`。保持された一覧状態：`#CustomerID` = K、`#pageInfo` = 「2 / 2 ページ」、`#totalCount` = 「全 24 件」、一覧 4 行 |
 | キャンセル_編集で変更が無ければ確認なしで詳細へ | EV-ORD-309 手順 1・2, F-3（未保存の変更がある場合のみ） | 受注 1 件 | 編集を開く → `#btnCancel` | 確認ダイアログが出ない。詳細（`#orderId` = 受注 ID、`#detailList`）が表示される。`#messageArea` が空 |
 | キャンセル_編集で変更があれば確認し、取り消すと何もしない | EV-ORD-309 手順 1, F-3, DEC-ORD-37 | 受注 1 件 | 編集を開く → `#ShipCity` を変える → `#btnCancel` → 取り消す | ダイアログのメッセージが「入力内容は保存されません。よろしいですか？」。取り消した後も編集画面のまま（`#ShipCity` が変えた値）。DB の受注が変わらない |
 | キャンセル_編集で変更があり承認すると詳細へ戻る | EV-ORD-309 手順 1・2・3 | 受注 1 件 | 上のあと、もう一度 `#btnCancel` → 承認 | 詳細が表示される（`#shipCity` が元の値）。DB の受注・RowVersion が変わらない |
@@ -277,6 +282,7 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 | 登録で商品マスタの単価が NULL のときの初期単価 | DEC-ORD-42 の答え：定めない |
 | 編集の読み込み時に商品マスタに無い明細 | 読み込みは `Products` との内部結合（`EV-ORD-301` 手順 3-4）。表示しない行は保存の入力に出ない（`DEC-ORD-24` と同じ読み）。通常の操作で起こらない |
 | 編集で、読み込み時の廃番の行の商品を別の廃番の商品に変える | UI の選択肢からは起こらず、「読み込み時から存在する行は対象外」の範囲が仕様で決まらない（行の商品が変わると削除＋挿入）。直接の呼び出しでしか起こらない |
+| 編集で、廃番でない商品の行に、読み込み時に無かったのに `OriginalProductID` を付けて送る（`OriginalProductID` が付いているのに、その (OrderID, ProductID) の明細が DB に無い） | 細工した POST・B層を直接呼んだときだけ起こる（他の利用者が明細を変える操作 ── 受注の保存・受注の削除・出荷の確定 ── は、どれも親の `Orders.RowVersion` を進めるので `ERR-CONFLICT` か `ERR-NOTFOUND` になる）。DEC-ORD-49（決定 21。答え：4＝定めない）のとおり、行の扱いはケースにしない（検証を `Original*` を信じて外さない、という条件は 3.5・3.6 の廃番のケースと 3.6 の ORD-T5 のケースで確かめる）。実装は、廃番の検査は画面の主張を信じず、既存の行かは DB で確かめる |
 | 保存時に受注が出荷済になっていて行バージョンが同じ | 出荷確定は `RowVersion + 1`（`EV-ORD-402`）なので `ERR-CONFLICT` で守られる。出荷確定の画面は範囲外 |
 | 他の利用者が明細だけを更新・削除したときの `ERR-CONFLICT` | `OD-T6`：楽観排他は親の `Orders.RowVersion`。明細の変更を検出しない（`BumpDetail` は「触れない行を触れない」の確認だけに使う） |
 | 画面の複数タブでの一覧状態の混線 | 一覧状態の保持の方法は計画（段 3）で決める。画面の振る舞いとしては、キャンセルで保持した一覧状態に戻ることだけを確かめる |
@@ -311,6 +317,8 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 | 17（DEC-ORD-45） | `SC-ORD-03-I04`、`DEC-ORD-18`（対象は `SC-ORD-02-I05` だけ） | 編集画面の顧客住所の区切りと、空の要素の詰め方は `SC-ORD-02-I05` と同じにするか | 1. 同じ（区切りは定めない。空の要素を詰める） ／ 2. 区切りを決める（半角空白など） ／ 3. 定めない（要素が順に並ぶことだけ。空の要素の扱いも期待にしない） | 1。同じ住所の連結で、別の規則を作る理由が無い。ただし本文の根拠は無いので決定にする | B `OrdTfEditInit_編集の受注情報`・`OrdTfCustomer_電話と住所`・`空の要素は空`、E2E `顧客選択_顧客情報と出荷先の既定値` | GO（1。区切りは定めない・空の要素は詰める。DEC-ORD-18 の決定は「定めない」）。代行 |
 | 18（DEC-ORD-46） | `SC-ORD-03-I16` 列 4、`DEC-ORD-26`（対象は `SC-ORD-02-I17` 列 4） | 編集画面の明細の価格（`単価 × (1 - 割引率)`）の小数 2 桁表示の丸め | 1. 四捨五入（`0.425` → `0.43`） ／ 2. 切り捨て ／ 3. 偶数丸め ／ 4. 定めない | 1。`SC-ORD-02` と揃う。画面表示は 2 桁（共通仕様 3 節） | E2E `明細の再計算_単価・割引率・数量の変更`（`.line-price`） | GO（1。四捨五入）。代行。要レビュー（DEC-ORD-26 と一緒に） |
 | 19（DEC-ORD-47） | `VAL-DATE`、`DEC-ORD-09`・`10`（対象は検索条件）、TableSchema Orders（`datetime`） | 保存する受注日・要求納期が `1753/01/01` より前のときの扱い（`datetime` に入らない） | 1. 定めない（実装に任せ、テストの期待にしない） ／ 2. `VAL-DATE` の違反にする（項目の直下） ／ 3. 専用の文言を決める | 1。`DEC-ORD-10` と同じ扱い。決まるまで、範囲の端の通るケース（`1753/01/01`・`9999/12/31`）だけを作る | B 3.5 `日付の範囲の端は通る` | GO（1。定めない）。代行 |
+| 20（DEC-ORD-48） | `ORD-T1`、`EV-ORD-308` 検証内容（`VAL-REQUIRED`）、`EV-ORD-301` 手順 3 | 編集モードで保存するとき、読み込み時に NULL だった顧客・担当者・受注日も必須にするか（`ORD-T1` は新規登録で必須とし編集を書かず、`EV-ORD-308` の検証内容はモードを区別せず `VAL-REQUIRED` とする） | 1. 編集でも必須 ／ 2. 編集では、読み込み時に NULL だった項目は空のままでよい（それ以外は必須） ／ 3. 定めない | 1。`EV-ORD-308` の文がモードを区別せずに必須としている。`ORD-T1` の「表示側は NULL を許容」は表示の決まりで、保存の検証を緩める根拠にならない | B 3.6 `編集でも必須の欠けは違反` | GO（1。編集でも必須）。代行（依頼 006）。Northwind2 の 830 件に顧客・担当者・受注日が NULL の行は 0 件 |
+| 21（DEC-ORD-49） | `EV-ORD-308` 手順 4-3、`OD-T6` | 編集の保存で、`OriginalProductID` が付いているのに、その (OrderID, ProductID) の明細が DB に無い行（廃番でない商品）を受け取ったとき、どうするか（画面の操作では起こらない。細工した POST・B層を直接呼んだときだけ） | 1. 読み込み時に無かった行として挿入する ／ 2. 何もしない（行を捨てる） ／ 3. `ERR-CONFLICT` にする ／ 4. 定めない（実装に任せ、テストの期待にしない） | 4。画面の操作では起こらない（他の利用者が明細を変える操作は、どれも `Orders.RowVersion` を進めるので `ERR-CONFLICT`・`ERR-NOTFOUND` になる）。`DEC-ORD-10`・`11` と同じ扱い | なし（5 章に作らないケースとして書いた）。ただし下の条件から、3.6 `OrdTfSave_編集で削除の印と同じ商品の行を残しても明細は1行以上残る` を足した | GO（4。定めない）。代行。**条件**：定めないのは「行をどう扱うか」だけ。どの扱いでも、保存の検証（OD-T1 の重複・OD-T3 の廃番・VAL-EXISTS・VAL-REQUIRED・VAL-NUMERIC）を、画面が送る読み込み時の値（`OriginalProductID` など `Original*`）を信じて外さない（期待は EV-ORD-308 の検証内容・OD-T3 で決まる）。外れる経路があれば、テスト仕様に足す。実装が選んだ扱いは計画に理由と一緒に書く。記録は NorthwindDbSampleSpec@a724ca5 の DEC-ORD-49 |
 
 > 決定 11（DEC-ORD-39）は本文から読めるが、`301` の「空行」と `304` の既定値の関係を本文が明記していないので、念のため上げた。
 
@@ -320,3 +328,31 @@ B層で確かめることは繰り返さない（検証の全項目・金額の�
 - **Red（P層）**：ビルドが通り、`/OrdTf/Edit?mode=new`・`mode=edit&id=` を開ける最小の土台（要素なし。既存の 404 と本文 1 行の土台を、`Edit.cshtml` の空の土台に置き換える）を先に置く。E2E は `Expect` で落ちる。
 - **最初から通りうるケース**：予定では、**B層の `OrdTfSave_…検証` の一部**（空の実装の戻り値 `ErrorFlag = false` で `ErrorFlag = false` を期待するケース：`送料0は通る`・`受注日と要求納期が同じ日は通る`・`桁数ちょうど`・境界値の「通る」側）は最初から通りうる。空の実装は ErrorFlag = false を返すので、**「通る」側は `GetOrder`・`GetDetails` の値（受注が入っていること）も確かめる**ようにして、Red にする（表の期待に既に書いた）。E2E で最初から通るものは無い。
 - テストのファイル：`Shared\WSServer_sample.Tests\OrdTfBusinessTests.cs`・`TestData.cs`（足す）、`MVC_Sample_Core\MVC_Sample.E2ETests\OrdTfEditScreenTests.cs`（新規）・`TestData.cs`（足す）。
+
+## 8. 段 2 の追加の確かめ（テスト仕様の差分を足したとき。TESTING.md 4）
+
+段 4 の実装が作業ツリーにある状態で、足した・直したテストを流した（net10.0。net48 も同じ結果）。B層 220 ケース（既存 213 ＋ 新しい 7）：失敗 4・合格 216。
+
+| ケース | 今の実装の結果 | 落ち方の例（実際の値） |
+| --- | --- | --- |
+| `OrdTfSave_登録でOriginalProductIDを付けても新規の廃番商品は指定できない` | 失敗（Red） | `Assert.That(rv.ErrorFlag, Is.True)`：`Expected: True / But was: False`（廃番の検査が Original* を信じて外れ、受注が入る） |
+| `OrdTfSave_編集で読み込み時に無かった行にOriginalProductIDを付けても廃番商品は足せない` | 失敗（Red） | 同上（`Expected: True / But was: False`） |
+| `OrdTfSave_編集で削除の印と同じ商品の行を残しても明細は1行以上残る(False／True)` | 失敗（Red）×2 | `Assert.That(TestData.GetDetails(o).Count, Is.GreaterThanOrEqualTo(1))`：`Expected: greater than or equal to 1 / But was: 0`（どちらの TestCase も 0 行になる） |
+| `OrdTfSave_編集でも必須の欠けは違反("CustomerID"／"EmployeeID"／"OrderDate")` | **最初から通る**（DEC-ORD-48 の答えは実装が既にそうしている） | 下の「壊して確かめた」 |
+| E2E `保存_編集で消されていたらERR_NOTFOUNDで一覧へ`（前提を `employeeId: c.E` に直した） | **最初から通る**（実装が既に検証 → 存在確認の順で、担当者があれば NOTFOUND へ進む） | 下の「壊して確かめた」 |
+
+**壊して確かめた**（実装の該当箇所を 1 か所ずつ一時的に壊し、流し、戻した。戻したファイルは更新時刻を今にして、戻した後に全件を流した）
+
+| 壊した箇所 | 落ちたケース | 落ち方の例 |
+| --- | --- | --- |
+| `OrdTfBusiness.ValidateSave` の顧客の必須の検査を、編集のとき違反にせず `v.CustomerID = ""` にする | `OrdTfSave_編集でも必須の欠けは違反("CustomerID")`（ほかの 2 つは通る） | `Assert.That(rv.ErrorFlag, Is.True)`：`Expected: True / But was: False` |
+| 同、担当者の必須の検査を、編集のとき違反にせず `v.EmployeeID = 0` にする | `…("EmployeeID")` | 同上 |
+| 同、受注日の必須の検査を、編集のとき違反にせず `orderDate = DateTime.Today` にする | `…("OrderDate")` | 同上 |
+| `OrdTfController.Save` の `rv.ErrorMessageID == OrdTfBusiness.MsgIdNotFound` を、別の値との比較に変える（ERR-NOTFOUND が検証エラーの再描画に落ちる） | E2E `保存_編集で消されていたらERR_NOTFOUNDで一覧へ` | `PlaywrightException : Locator expected to be visible`（`#orderList`。編集画面に留まる） |
+
+戻した後の全件（作業ツリーの実装）：B層 net10.0 220 ケース中、失敗 4（上の Red の 4 ケース）・合格 216。net48 も同じ。E2E net10.0 は 98 ケース全部合格（2 分 14 秒）。後始末：Orders 830・Order Details 2155・Customers 91・Products 77、Tf で始まるテストのデータ 0 件。
+
+### 8.1 検証が先（`OrdTfSave_編集で消された受注でも検証の違反が先に返る`）の確かめ
+
+- 段 2 の時点（段 4 の実装が作業ツリーにある状態。版：Red のコミット 8266d54 の後、決定 21 の追随の前）で流した：**最初から通る**（実装が検証 → 存在確認の順のため）。
+- 壊して確かめた：`OrdTfBusiness.UOC_OrdTfSave` の `ValidateSave` の前に、編集のとき `OrdTfOrderCount.sql` で受注の有無を確かめ、無ければ ERR-NOTFOUND を投げる処理を一時的に足した（存在確認 → 検証 → 更新の順）。結果：このケースだけ失敗。落ち方の例：`Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Freight" }))` が `Expected: equivalent to < "Freight" > / But was: <empty>`（ErrorFlag は true だが、ErrorFields が空で ERR-NOTFOUND になる）。**ほかのケースは、この壊し方で新しく落ちなかった**（落ちたのは、実装を直す前から Red の 4 ケースと、このケースだけ。`OrdTfSave_編集で存在しない受注はERR_NOTFOUND`・`OrdTfSave_編集の検証エラーでは何も更新しない` は通った。順の入れ替えを落とすのは、このケースだけ）。戻した後：B層 221 ケース、net10.0・net48 とも失敗 4（Red）・合格 217。

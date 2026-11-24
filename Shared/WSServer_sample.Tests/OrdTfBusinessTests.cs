@@ -2465,6 +2465,26 @@ namespace WSServer_sample.Tests
             AssertNothingSaved(c, rv);
         }
 
+        [Test, Basis("OD-T3"), Basis("EV-ORD-308"), Basis("ERR-BIZ"), Basis("DEC-ORD-49")]
+        public void OrdTfSave_登録でOriginalProductIDを付けても新規の廃番商品は指定できない()
+        {
+            Ctx c = NewCtx();
+            int q = data.NewProduct(mark: 'Q', discontinued: true, unitPrice: 5.00m);
+
+            OrdTfReturnValue rv = SaveV(c, pv =>
+            {
+                OrdTfSaveLine l = NewLine(q, "5.00", "0", "1");
+                l.OriginalProductID = q;      // 細工した入力：読み込み時の行だと名乗る（登録モードに読み込み時の行は無い）
+                l.OriginalUnitPrice = 5.00m;
+                l.OriginalDiscount = 0m;
+                l.OriginalQuantity = 1;
+                pv.SaveLines = new List<OrdTfSaveLine> { l };
+            });
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessages, Does.Contain(MsgDiscontinued));
+            AssertNothingSaved(c, rv);
+        }
         [Test, Basis("EV-ORD-308"), Basis("DEC-CMN-04"), Basis("DEC-CMN-05")]
         public void OrdTfSave_違反は全部まとめて返す()
         {
@@ -2838,6 +2858,84 @@ namespace WSServer_sample.Tests
             Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).ToList(), Is.EqualTo(new List<int> { a.P }));
         }
 
+        [Test, Basis("OD-T3"), Basis("EV-ORD-308"), Basis("ERR-BIZ"), Basis("DEC-ORD-49")]
+        public void OrdTfSave_編集で読み込み時に無かった行にOriginalProductIDを付けても廃番商品は足せない()
+        {
+            Ctx c = NewCtx();
+            int q = data.NewProduct(mark: 'Q', discontinued: true, unitPrice: 5.00m);
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);   // Q の明細は無い
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv =>
+            {
+                OrdTfSaveLine l = NewLine(q, "5.00", "0", "1");
+                l.OriginalProductID = q;      // 細工した入力：読み込み時の行だと名乗る（DB に (o, Q) の明細は無い）
+                l.OriginalUnitPrice = 5.00m;
+                l.OriginalDiscount = 0m;
+                l.OriginalQuantity = 1;
+                pv.SaveLines.Add(l);
+            });
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessages, Does.Contain(MsgDiscontinued));
+            Assert.That(TestData.GetRowVersion(o), Is.EqualTo(1));
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).ToList(), Is.EqualTo(new List<int> { a.P }), "Q の行は入らない");
+        }
+
+        [Test, Basis("VAL-REQUIRED"), Basis("ORD-T1"), Basis("EV-ORD-308"), Basis("DEC-CMN-05"), Basis("DEC-ORD-48")]
+        [TestCase("CustomerID")]
+        [TestCase("EmployeeID")]
+        [TestCase("OrderDate")]
+        public void OrdTfSave_編集でも必須の欠けは違反(string field)
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv =>
+            {
+                if (field == "CustomerID") pv.CustomerID = "";
+                if (field == "EmployeeID") pv.EmployeeIDText = "";
+                if (field == "OrderDate") pv.OrderDateText = "";
+            });
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { field }));
+            Assert.That(rv.ErrorMessages, Is.Empty);
+            Assert.That(rv.OrderID, Is.EqualTo(0), "検証の違反のとき OrderID は 0");
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.RowVersion, Is.EqualTo(1));
+            Assert.That(row.CustomerID, Is.EqualTo(c.K));
+            Assert.That(row.EmployeeID, Is.EqualTo(c.E));
+            Assert.That(row.OrderDate, Is.EqualTo(D(2199, 3, 5)));
+            Assert.That(TestData.GetDetails(o).Count, Is.EqualTo(1));
+        }
+
+        [Test, Basis("ORD-T5"), Basis("EV-ORD-308"), Basis("DEC-ORD-49")]
+        [TestCase(false)]
+        [TestCase(true)]
+        public void OrdTfSave_編集で削除の印と同じ商品の行を残しても明細は1行以上残る(bool changeQuantity)
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv =>
+            {
+                if (changeQuantity) pv.SaveLines[0].QuantityText = "13";
+                pv.DeletedProductIDs = new List<int> { a.P };   // 同じ商品を、残す行と削除の印の両方に指定する細工した入力
+            });
+
+            // ErrorFlag の真偽は期待にしない（エラーにして DB を変えない、または削除の印を無視して行を残す）。明細は 0 行にならない
+            Assert.That(TestData.GetDetails(o).Count, Is.GreaterThanOrEqualTo(1), "明細が 0 行にならない（ORD-T5）");
+            if (rv.ErrorFlag)
+            {
+                Assert.That(TestData.GetRowVersion(o), Is.EqualTo(1));
+                TestData.DetailRow d = TestData.GetDetails(o).Single();
+                Assert.That(d.ProductID, Is.EqualTo(a.P));
+                Assert.That(d.Quantity, Is.EqualTo(12), "保存の前と同じ");
+            }
+        }
         [Test, Basis("ORD-T5"), Basis("ERR-BIZ")]
         public void OrdTfSave_編集で全明細を削除はできない()
         {
@@ -2900,6 +2998,20 @@ namespace WSServer_sample.Tests
             Assert.That(TestData.CountDetails(o), Is.EqualTo(0));
         }
 
+        [Test, Basis("EV-ORD-308"), Basis("ERR-VALIDATION"), Basis("ERR-NOTFOUND")]
+        public void OrdTfSave_編集で消された受注でも検証の違反が先に返る()
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv => pv.FreightText = "-1");
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Freight" }), "検証の違反が先（手順 1）");
+            Assert.That(rv.ErrorMessage, Is.Not.EqualTo(MsgNotFound), "ERR-NOTFOUND の文言ではない");
+        }
         [Test, Basis("EV-ORD-308"), Basis("ERR-VALIDATION")]
         public void OrdTfSave_編集の検証エラーでは何も更新しない()
         {
