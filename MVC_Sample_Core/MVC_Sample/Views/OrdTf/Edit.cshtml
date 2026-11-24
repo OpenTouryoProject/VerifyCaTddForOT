@@ -14,20 +14,476 @@
     //*  日時        更新者            内容
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/24  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
+    //*  2026/11/24  実装役            実装（段 4。EV-ORD-301〜309。金額の再計算・行の追加削除・顧客と商品の反映は画面内の script）
+    //*  2026/11/25  実装役            検証エラーの描き直しで、自動で入れた出荷先の値（autoVals）を引き継ぐ（DEC-ORD-32）
     //**********************************************************************************
 *@
+
+@using MVC_Sample.Models.ViewModels
+@using WSIFType_sample
+@model OrdTfEditViewModel
 
 @{
     // ページタイトル
     ViewBag.Title = "受注詳細（登録・編集）";
+    bool isEdit = Model.Mode == "edit";
+    string msgClass = string.IsNullOrEmpty(Model.Message) ? "" : (Model.MessageIsError ? "text-danger" : "text-info");
+    string cancelUrl = isEdit ? Url.Content("~/OrdTf/Detail?id=" + Model.OrderID) : Url.Action("Back");
+
+    // 明細の商品の選択肢（その行の読み込み時の商品が廃番で選択肢に無いときは、その行にだけ足す。OD-T3）
+    List<OrdTfOption> ProductOptionsFor(OrdTfEditRow r)
+    {
+        List<OrdTfOption> list = new List<OrdTfOption>(Model.Products);
+        if (!string.IsNullOrEmpty(r.OrigProductID) && !list.Any(o => o.Value == r.OrigProductID))
+        {
+            list.Add(new OrdTfOption { Value = r.OrigProductID, Text = r.OrigName });
+        }
+        return list;
+    }
 }
 
 @* スクリプト・セクション（RenderSection("HeaderScriptsSection", required: true)に出力されます） *@
 @section HeaderScriptsSection{
+    <style>
+        #lineList td { vertical-align: top; }
+        .line-product-error, .line-unitprice-error, .line-discount-error, .line-quantity-error { display: block; font-size: 0.85em; }
+    </style>
 }
 
-@* 本文レイアウト（RenderBodyに出力されます）。Red 用の空の土台 *@
+@* フッタ部のメインボタン（5 つ）。@section は <form> の外に描画されるので form 属性で紐付ける。
+   機能トランザクションを起動するのは保存（B03）だけ。キャンセル（B04）・明細行追加（B01）・行削除（B02）は遷移・入力支援なので
+   メインボタンに含めず、画面定義書の配置に従う（1 回目の決定 4） *@
+@section FooterButtonsSection{
+    <button type="submit" id="btnMain1" class="btn btn-primary" form="OrdTfEditForm">保存</button>
+    @for (int i = 2; i <= 5; i++)
+    {
+        <button type="button" id="@("btnMain" + i)" class="btn btn-secondary" disabled="disabled"></button>
+    }
+}
+
+@* 明細の 1 行の雛形（行の追加に使う。template の中は DOM に出ない） *@
+<template id="lineTemplate">
+    <tr class="line-row">
+        <td>
+            <select class="form-control line-product" name="line_product">
+                @foreach (OrdTfOption o in Model.Products)
+                {
+                    <option value="@o.Value">@o.Text</option>
+                }
+            </select>
+            <span class="line-product-error text-danger"></span>
+            <input type="hidden" name="line_origProduct" value="" />
+            <input type="hidden" name="line_origPrice" value="" />
+            <input type="hidden" name="line_origDiscount" value="" />
+            <input type="hidden" name="line_origQty" value="" />
+            <input type="hidden" name="line_origName" value="" />
+            <input type="hidden" name="line_stock" value="" />
+        </td>
+        <td><input type="text" inputmode="decimal" class="form-control line-unitprice" name="line_price" value="" /><span class="line-unitprice-error text-danger"></span></td>
+        <td><input type="text" inputmode="decimal" class="form-control line-discount" name="line_discount" value="0" /><span class="line-discount-error text-danger"></span></td>
+        <td class="line-price text-end"></td>
+        <td><input type="text" inputmode="numeric" class="form-control line-quantity" name="line_qty" value="1" /><span class="line-quantity-error text-danger"></span></td>
+        <td class="line-stock text-end"></td>
+        <td class="line-amount text-end"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger line-remove">行削除</button></td>
+    </tr>
+</template>
+
+@* 本文レイアウト（RenderBodyに出力されます） *@
+<form id="OrdTfEditForm" method="post" action="@Url.Action("Save")" data-mode="@Model.Mode" data-orderid="@Model.OrderID"
+      data-cancel-url="@cancelUrl" data-info-url="@Url.Action("CustomerInfo")" data-product-url="@Url.Action("ProductInfo")"
+      data-missing-url="@Url.Action("Missing")"
+      data-auto-shipname="@Model.AutoShip.GetValueOrDefault("ShipName", "")" data-auto-shipaddress="@Model.AutoShip.GetValueOrDefault("ShipAddress", "")"
+      data-auto-shipcity="@Model.AutoShip.GetValueOrDefault("ShipCity", "")" data-auto-shipregion="@Model.AutoShip.GetValueOrDefault("ShipRegion", "")"
+      data-auto-shippostalcode="@Model.AutoShip.GetValueOrDefault("ShipPostalCode", "")" data-auto-shipcountry="@Model.AutoShip.GetValueOrDefault("ShipCountry", "")">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="Mode" value="@Model.Mode" />
+    <input type="hidden" name="OrderID" value="@Model.OrderID" />
+    <input type="hidden" name="RowVersion" value="@Model.RowVersion" />
+    <input type="hidden" name="InitialSnapshot" value="@Model.InitialSnapshot" />
+    <div id="deletedMarks">
+        @foreach (string d in Model.Deleted)
+        {
+            <input type="hidden" name="deleted" value="@d" />
+        }
+    </div>
+
+    @* 共通メッセージ領域（エラーは text-danger、警告は text-warning、情報は text-info） *@
+    <div id="messageArea" class="@msgClass">@Model.Message</div>
+
+    @* 受注情報（SC-ORD-03-I01〜I09） *@
+    <div class="row">
+        <div class="form-group col-6">
+            <label>受注 ID</label>
+            <div id="orderId">@(isEdit ? Model.OrderID.ToString() : "（登録時に採番）")</div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="form-group col-6">
+            <label for="CustomerID">顧客＊</label>
+            <select id="CustomerID" name="CustomerID" class="form-control">
+                @foreach (OrdTfOption o in Model.Customers)
+                {
+                    <option value="@o.Value" selected="@(o.Value == Model.CustomerID)">@o.Text</option>
+                }
+            </select>
+            <span id="CustomerIDError" class="text-danger">@Model.Error("CustomerID")</span>
+        </div>
+        <div class="form-group col-6">
+            <label for="EmployeeID">担当者＊</label>
+            <select id="EmployeeID" name="EmployeeID" class="form-control">
+                @foreach (OrdTfOption o in Model.Employees)
+                {
+                    <option value="@o.Value" selected="@(o.Value == Model.EmployeeID)">@o.Text</option>
+                }
+            </select>
+            <span id="EmployeeIDError" class="text-danger">@Model.Error("EmployeeID")</span>
+        </div>
+    </div>
+    <div class="row">
+        <div class="form-group col-6">
+            <label>顧客電話番号</label>
+            <div id="customerPhone">@Model.CustomerPhone</div>
+        </div>
+        <div class="form-group col-6">
+            <label>顧客住所</label>
+            <div id="customerAddress">@Model.CustomerAddress</div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="form-group col-3">
+            <label for="OrderDate">受注日＊</label>
+            <input type="text" id="OrderDate" name="OrderDate" class="form-control" value="@Model.OrderDate" />
+            <span id="OrderDateError" class="text-danger">@Model.Error("OrderDate")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="RequiredDate">要求納期</label>
+            <input type="text" id="RequiredDate" name="RequiredDate" class="form-control" value="@Model.RequiredDate" />
+            <span id="RequiredDateError" class="text-danger">@Model.Error("RequiredDate")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="ShipVia">配送業者</label>
+            <select id="ShipVia" name="ShipVia" class="form-control">
+                @foreach (OrdTfOption o in Model.Shippers)
+                {
+                    <option value="@o.Value" selected="@(o.Value == Model.ShipVia)">@o.Text</option>
+                }
+            </select>
+            <span id="ShipViaError" class="text-danger">@Model.Error("ShipVia")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="Freight">送料</label>
+            <input type="text" inputmode="decimal" id="Freight" name="Freight" class="form-control" value="@Model.Freight" />
+            <span id="FreightError" class="text-danger">@Model.Error("Freight")</span>
+        </div>
+    </div>
+
+    @* 出荷先情報（SC-ORD-03-I10〜I15） *@
+    <div class="row">
+        <div class="form-group col-6">
+            <label for="ShipName">出荷先名称</label>
+            <input type="text" id="ShipName" name="ShipName" class="form-control" value="@Model.ShipName" />
+            <span id="ShipNameError" class="text-danger">@Model.Error("ShipName")</span>
+        </div>
+        <div class="form-group col-6">
+            <label for="ShipAddress">出荷先住所</label>
+            <input type="text" id="ShipAddress" name="ShipAddress" class="form-control" value="@Model.ShipAddress" />
+            <span id="ShipAddressError" class="text-danger">@Model.Error("ShipAddress")</span>
+        </div>
+    </div>
+    <div class="row">
+        <div class="form-group col-3">
+            <label for="ShipCity">出荷先市区町村</label>
+            <input type="text" id="ShipCity" name="ShipCity" class="form-control" value="@Model.ShipCity" />
+            <span id="ShipCityError" class="text-danger">@Model.Error("ShipCity")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="ShipRegion">出荷先地域</label>
+            <input type="text" id="ShipRegion" name="ShipRegion" class="form-control" value="@Model.ShipRegion" />
+            <span id="ShipRegionError" class="text-danger">@Model.Error("ShipRegion")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="ShipPostalCode">出荷先郵便番号</label>
+            <input type="text" id="ShipPostalCode" name="ShipPostalCode" class="form-control" value="@Model.ShipPostalCode" />
+            <span id="ShipPostalCodeError" class="text-danger">@Model.Error("ShipPostalCode")</span>
+        </div>
+        <div class="form-group col-3">
+            <label for="ShipCountry">出荷先国</label>
+            <input type="text" id="ShipCountry" name="ShipCountry" class="form-control" value="@Model.ShipCountry" />
+            <span id="ShipCountryError" class="text-danger">@Model.Error("ShipCountry")</span>
+        </div>
+    </div>
+
+    @* 受注明細情報（SC-ORD-03-I16〜I18）。明細入力表は table を自前で生成し、tr をループする *@
+    <div class="mb-2 mt-2">
+        <button type="button" id="btnAddLine" class="btn btn-outline-primary">明細行追加</button>
+    </div>
+    <table id="lineList" class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th>商品＊</th>
+                <th>単価</th>
+                <th>割引率</th>
+                <th>価格</th>
+                <th>数量＊</th>
+                <th>在庫</th>
+                <th>明細金額</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (int i = 0; i < Model.Lines.Count; i++)
+            {
+                OrdTfEditRow r = Model.Lines[i];
+                string key = "Lines[" + i + "].";
+                <tr class="line-row">
+                    <td>
+                        <select class="form-control line-product" name="line_product" data-prev="@r.ProductID">
+                            @foreach (OrdTfOption o in ProductOptionsFor(r))
+                            {
+                                <option value="@o.Value" selected="@(o.Value == r.ProductID)">@o.Text</option>
+                            }
+                        </select>
+                        <span class="line-product-error text-danger">@Model.Error(key + "ProductID")</span>
+                        <input type="hidden" name="line_origProduct" value="@r.OrigProductID" />
+                        <input type="hidden" name="line_origPrice" value="@r.OrigUnitPrice" />
+                        <input type="hidden" name="line_origDiscount" value="@r.OrigDiscount" />
+                        <input type="hidden" name="line_origQty" value="@r.OrigQuantity" />
+                        <input type="hidden" name="line_origName" value="@r.OrigName" />
+                        <input type="hidden" name="line_stock" value="@r.Stock" />
+                    </td>
+                    <td><input type="text" inputmode="decimal" class="form-control line-unitprice" name="line_price" value="@r.UnitPrice" /><span class="line-unitprice-error text-danger">@Model.Error(key + "UnitPrice")</span></td>
+                    <td><input type="text" inputmode="decimal" class="form-control line-discount" name="line_discount" value="@r.Discount" /><span class="line-discount-error text-danger">@Model.Error(key + "Discount")</span></td>
+                    <td class="line-price text-end"></td>
+                    <td><input type="text" inputmode="numeric" class="form-control line-quantity" name="line_qty" value="@r.Quantity" /><span class="line-quantity-error text-danger">@Model.Error(key + "Quantity")</span></td>
+                    <td class="line-stock text-end">@r.Stock</td>
+                    <td class="line-amount text-end"></td>
+                    <td><button type="button" class="btn btn-sm btn-outline-danger line-remove" disabled="@(Model.Lines.Count < 2)">行削除</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered w-auto">
+        <tr><th>小計</th><td id="subtotal" class="text-end">0.00</td></tr>
+        <tr><th>合計</th><td id="total" class="text-end fw-bold">0.00</td></tr>
+    </table>
+</form>
+
+@* キャンセル（B04。画面下部。未保存の変更があるときは確認する。F-3） *@
+<div class="mt-2">
+    <button type="button" id="btnCancel" class="btn btn-secondary">キャンセル</button>
+</div>
 
 @* スクリプト・セクション（RenderSection("FooterScriptsSection", required: true)に出力されます） *@
 @section FooterScriptsSection{
+    <script>
+    (function () {
+        'use strict';
+        var form = document.getElementById('OrdTfEditForm');
+        var tbody = document.querySelector('#lineList tbody');
+        var tpl = document.getElementById('lineTemplate');
+        var msg = document.getElementById('messageArea');
+        var isNew = form.dataset.mode !== 'edit';
+        var MSG_STOCK = '在庫数を超えています。';
+        var MSG_DUP = 'この商品は既に明細に存在します。数量を変更してください。';
+        var MSG_CANCEL = '入力内容は保存されません。よろしいですか？';
+        var MSG_OVERWRITE = '入力済みの出荷先を、選択した顧客の住所で上書きします。よろしいですか？';
+        var shipFields = ['ShipName', 'ShipAddress', 'ShipCity', 'ShipRegion', 'ShipPostalCode', 'ShipCountry'];
+        var autoVals = {};   // 顧客の選択で自動設定した出荷先の値（これと違う項目があれば、利用者が入力したとみなす。DEC-ORD-32）
+        // 描き直し（検証エラー）の後は、選ばれている顧客の既定の出荷先が渡される。初期表示は空
+        shipFields.forEach(function (f) { autoVals[f] = form.getAttribute('data-auto-' + f.toLowerCase()) || ''; });
+        var freightCents = 0n;
+
+        function byId(id) { return document.getElementById(id); }
+        function setMsg(text, cls) { msg.textContent = text; msg.className = text ? cls : ''; }
+
+        // ---- 10 進数（BigInt）。単価・割引率は小数 4 桁（1e4 倍）で持つ ----
+        function parseDec(s) {
+            s = (s || '').trim();
+            if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+            var neg = s.charAt(0) === '-';
+            s = s.replace(/^[+-]/, '');
+            var p = s.split('.');
+            var ip = p[0] || '0', fp = p[1] || '';
+            var v = BigInt(ip) * 10000n + BigInt((fp + '0000').slice(0, 4)) + ((fp.length > 4 && fp.charAt(4) >= '5') ? 1n : 0n);
+            return neg ? -v : v;
+        }
+        function parseInt1(s) {
+            s = (s || '').trim();
+            return /^[+-]?\d+$/.test(s) ? Number(s) : null;
+        }
+        function fmtCents(c) {
+            var neg = c < 0n; if (neg) c = -c;
+            var s = c.toString(); while (s.length < 3) s = '0' + s;
+            var ip = s.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            return (neg ? '-' : '') + ip + '.' + s.slice(-2);
+        }
+        function toCents(scaled8) { return (scaled8 + 500000n) / 1000000n; }   // 1e8 倍 → 小数第 3 位を四捨五入した 1e2 倍
+
+        function q(row, cls) { return row.querySelector('.' + cls); }
+        function rows() { return Array.prototype.slice.call(tbody.querySelectorAll('tr')); }
+
+        // ---- 項目の検査と再計算（EV-ORD-303・307。DB へは行かない） ----
+        function fieldError(row, cls, text) { q(row, cls + '-error').textContent = text; }
+
+        function recalcRow(row) {
+            var u = parseDec(q(row, 'line-unitprice').value);
+            var d = parseDec(q(row, 'line-discount').value);
+            var n = parseInt1(q(row, 'line-quantity').value);
+            var blankPrice = q(row, 'line-unitprice').value.trim() === '';
+            if (blankPrice) {
+                q(row, 'line-price').textContent = '';
+                q(row, 'line-amount').textContent = '';
+                row.dataset.cents = '0';
+            } else if (u !== null && d !== null && n !== null && u >= 0n && d >= 0n && d <= 10000n && n >= 1) {
+                var ps = u * (10000n - d);
+                q(row, 'line-price').textContent = fmtCents(toCents(ps));
+                var cents = toCents(ps * BigInt(n));
+                q(row, 'line-amount').textContent = fmtCents(cents);
+                row.dataset.cents = cents.toString();
+            }
+        }
+        function updateTotals() {
+            var sum = 0n;
+            rows().forEach(function (r) { sum += BigInt(r.dataset.cents || '0'); });
+            byId('subtotal').textContent = fmtCents(sum);
+            byId('total').textContent = fmtCents(sum + freightCents);
+        }
+        function checkRowField(row, cls) {
+            var el = q(row, cls), t = el.value.trim(), ok = true, text = '';
+            if (cls === 'line-unitprice') {
+                var u = parseDec(t); if (t !== '' && (u === null || u < 0n)) { ok = false; text = '単価は 0 以上の数値で入力してください。'; }
+            } else if (cls === 'line-discount') {
+                var d = parseDec(t); if (t !== '' && (d === null || d < 0n || d > 10000n)) { ok = false; text = '割引率は 0 以上 1 以下の数値で入力してください。'; }
+            } else {
+                var n = parseInt1(t); if (t !== '' && (n === null || n < 1)) { ok = false; text = '数量は 1 以上の整数で入力してください。'; }
+            }
+            fieldError(row, cls, ok ? '' : text);
+            return ok;
+        }
+        function checkStock(row) {
+            var stock = q(row, 'line-stock').textContent.trim();
+            var n = parseInt1(q(row, 'line-quantity').value);
+            if (stock !== '' && n !== null && n > Number(stock)) { setMsg(MSG_STOCK, 'text-warning'); }
+            else if (msg.classList.contains('text-warning')) { setMsg('', ''); }
+        }
+        function onRowInput(row, cls) {
+            if (checkRowField(row, cls)) { recalcRow(row); updateTotals(); }
+            if (cls === 'line-quantity') checkStock(row);
+        }
+        function checkFreight() {
+            var t = byId('Freight').value.trim(), el = byId('FreightError');
+            if (t === '') { freightCents = 0n; el.textContent = ''; return; }
+            var f = parseDec(t);
+            if (f === null || f < 0n) { el.textContent = '送料は 0 以上の数値で入力してください。'; return; }
+            el.textContent = '';
+            freightCents = (f + 50n) / 100n;   // 1e4 倍 → 小数第 3 位を四捨五入した 1e2 倍
+        }
+
+        function updateRemoveButtons() {
+            var rs = rows();
+            rs.forEach(function (r) { q(r, 'line-remove').disabled = rs.length < 2; });
+        }
+
+        // ---- 顧客の選択（EV-ORD-302） ----
+        function loadCustomer() {
+            var id = byId('CustomerID').value;
+            if (id === '') { byId('customerPhone').textContent = ''; byId('customerAddress').textContent = ''; return; }
+            fetch(form.dataset.infoUrl + '?id=' + encodeURIComponent(id), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j.ok) { location.href = form.dataset.missingUrl; return; }
+                    byId('customerPhone').textContent = j.phone;
+                    byId('customerAddress').textContent = j.address;
+                    if (!isNew) return;   // 編集モードでは出荷先を変えない（受注時点の値を保持）
+                    var vals = { ShipName: j.shipName, ShipAddress: j.shipAddress, ShipCity: j.shipCity,
+                                 ShipRegion: j.shipRegion, ShipPostalCode: j.shipPostalCode, ShipCountry: j.shipCountry };
+                    var typed = shipFields.some(function (f) { return byId(f).value !== autoVals[f]; });
+                    if (typed && !window.confirm(MSG_OVERWRITE)) return;   // 取り消されたら上書きしない
+                    shipFields.forEach(function (f) { byId(f).value = vals[f]; });
+                    autoVals = vals;
+                });
+        }
+
+        // ---- 商品の選択（EV-ORD-306） ----
+        function loadProduct(row) {
+            var sel = q(row, 'line-product'), pid = sel.value, prev = sel.dataset.prev || '';
+            if (pid === '') {
+                q(row, 'line-unitprice').value = ''; q(row, 'line-stock').textContent = '';
+                row.querySelector('[name=line_stock]').value = '';
+                sel.dataset.prev = '';
+                recalcRow(row); updateTotals();
+                return;
+            }
+            var dup = rows().some(function (r) { return r !== row && q(r, 'line-product').value === pid; });
+            if (dup) { sel.value = prev; setMsg(MSG_DUP, 'text-danger'); return; }
+            fetch(form.dataset.productUrl + '?id=' + encodeURIComponent(pid), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j.ok) { location.href = form.dataset.missingUrl; return; }
+                    sel.dataset.prev = pid;
+                    fieldError(row, 'line-product', '');
+                    q(row, 'line-unitprice').value = j.unitPrice;
+                    q(row, 'line-stock').textContent = j.stock;
+                    row.querySelector('[name=line_stock]').value = j.stock;
+                    checkRowField(row, 'line-unitprice');
+                    recalcRow(row); updateTotals(); checkStock(row);
+                });
+        }
+
+        // ---- 未保存の変更（F-3。DEC-ORD-37：読み込み時の入力から変わっていれば変更あり） ----
+        function snapshot() {
+            var parts = [];
+            Array.prototype.forEach.call(form.elements, function (el) {
+                if (!el.name || el.name === 'InitialSnapshot' || el.name === '__RequestVerificationToken') return;
+                if (el.type === 'button' || el.type === 'submit') return;
+                parts.push(el.name + '=' + el.value);
+            });
+            return parts.join('&');
+        }
+        var initial = form.elements['InitialSnapshot'].value;
+
+        // ---- イベント ----
+        form.addEventListener('change', function (e) {
+            var t = e.target;
+            if (t.id === 'CustomerID') { loadCustomer(); }
+            else if (t.id === 'Freight') { checkFreight(); updateTotals(); }
+            else if (t.classList.contains('line-product')) { loadProduct(t.closest('tr')); }
+            else if (t.classList.contains('line-unitprice') || t.classList.contains('line-discount') || t.classList.contains('line-quantity')) {
+                var cls = t.classList.contains('line-unitprice') ? 'line-unitprice' : (t.classList.contains('line-discount') ? 'line-discount' : 'line-quantity');
+                onRowInput(t.closest('tr'), cls);
+            }
+        });
+        tbody.addEventListener('click', function (e) {
+            var b = e.target.closest ? e.target.closest('.line-remove') : null;
+            if (!b || b.disabled) return;
+            var row = b.closest('tr');
+            if (rows().length < 2) return;
+            var orig = row.querySelector('[name=line_origProduct]').value;
+            if (orig !== '') {   // 読み込み時に存在した行は、保存時に削除対象として扱う（EV-ORD-308）。この時点では DB を更新しない
+                var h = document.createElement('input');
+                h.type = 'hidden'; h.name = 'deleted'; h.value = orig;
+                byId('deletedMarks').appendChild(h);
+            }
+            row.parentNode.removeChild(row);
+            updateRemoveButtons(); updateTotals();
+        });
+        byId('btnAddLine').addEventListener('click', function () {
+            var row = tpl.content.querySelector('tr').cloneNode(true);
+            row.dataset.cents = '0';
+            tbody.appendChild(row);
+            updateRemoveButtons();
+        });
+        byId('btnCancel').addEventListener('click', function () {
+            if (snapshot() !== initial && !window.confirm(MSG_CANCEL)) return;
+            location.href = form.dataset.cancelUrl;
+        });
+
+        // ---- 初期表示 ----
+        rows().forEach(function (r) { recalcRow(r); });
+        checkFreight();
+        updateTotals();
+        if (!initial) { initial = snapshot(); form.elements['InitialSnapshot'].value = initial; }
+    })();
+    </script>
 }

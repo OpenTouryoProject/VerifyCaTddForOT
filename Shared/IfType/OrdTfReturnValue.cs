@@ -248,6 +248,9 @@ namespace WSIFType_sample
         /// <summary>保存の検証で、共通メッセージ領域に出すもの（OrdTfSave）</summary>
         public List<string> ErrorMessages = new List<string>();
 
+        /// <summary>保存の検証で、項目単位の違反の文言（ErrorFields と同じ順。OrdTfSave）</summary>
+        public List<string> ErrorFieldMessages = new List<string>();
+
         #endregion
     }
 }

@@ -18,6 +18,7 @@
 //*  2026/11/24  実装役            Red 用の空の土台（Detail・Back。段 2。EV-ORD-201・206 は段 4 で実装する）
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203・206：Detail・Delete・Back。一覧状態は Session に保持）
 //*  2026/11/24  実装役            Red 用の空の土台（Edit。EV-ORD-301 は段 4 で実装する）
+//*  2026/11/24  実装役            実装（段 4。EV-ORD-202・301〜309：Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing。保存は PRG）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -26,6 +27,8 @@ using MVC_Sample.Models.ViewModels;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -337,7 +340,15 @@ namespace MVC_Sample.Controllers
             {
                 return this.BackWithMessage(rv.ErrorMessage, true);
             }
-            return View("Detail", new OrdTfDetailViewModel { Data = rv });
+            // 保存の完了・出荷済で戻ってきたときのメッセージ（PRG。EV-ORD-308 手順 6・EV-ORD-301 手順 3-2）
+            OrdTfDetailViewModel dm = new OrdTfDetailViewModel { Data = rv };
+            string dmsg = TempData[TempDetailMessage] as string;
+            if (dmsg != null)
+            {
+                dm.Message = dmsg;
+                dm.MessageIsError = TempData[TempDetailIsError] is bool db && db;
+            }
+            return View("Detail", dm);
         }
 
         /// <summary>
@@ -413,18 +424,372 @@ namespace MVC_Sample.Controllers
             return this.Display(model);
         }
 
+        #region 受注詳細（登録・編集。Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing）
+
+        /// <summary>TempData のキー：編集の画面へ戻ったときの共通メッセージ領域の文言・種類（ERR-CONFLICT の再表示）</summary>
+        private const string TempEditMessage = "OrdTfEditMessage";
+        private const string TempEditIsError = "OrdTfEditMessageIsError";
+
+        /// <summary>TempData のキー：詳細（照会）へ戻ったときの共通メッセージ領域の文言・種類（保存の完了・出荷済）</summary>
+        private const string TempDetailMessage = "OrdTfDetailMessage";
+        private const string TempDetailIsError = "OrdTfDetailMessageIsError";
+
+        /// <summary>出荷済は編集できない（詳細の「編集」。EV-ORD-202 手順 1）</summary>
+        private const string MsgShippedFromDetail = "出荷済の受注は編集できません。出荷を取り消してから編集してください。";
+
         /// <summary>
-        /// 受注詳細（登録・編集。SC-ORD-03）。Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
+        /// 受注詳細（登録・編集）のページ読み込み（EV-ORD-301）
         /// GET: /OrdTf/Edit?mode=new または /OrdTf/Edit?mode=edit&amp;id=受注 ID
         /// </summary>
-        /// <param name="mode">モード（new = 登録、edit = 編集）</param>
+        /// <param name="mode">モード（new = 登録、edit = 編集。それ以外は登録）</param>
         /// <param name="id">受注 ID（編集のみ）</param>
-        /// <returns>空の画面（IActionResult）</returns>
+        /// <returns>画面（IActionResult）。受注が無ければ一覧へ、出荷済なら詳細へ戻る</returns>
         [HttpGet]
-        public IActionResult Edit(string mode, int? id)
+        public async Task<IActionResult> Edit(string mode, int? id)
         {
-            return View();
+            bool isEdit = mode == "edit";
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfEditInit", "SQL", this.UserInfo);
+            pv.Mode = isEdit ? "edit" : "new";
+            pv.OrderID = id ?? 0;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+
+            if (rv.ErrorFlag)
+            {
+                if (rv.ErrorMessageID == OrdTfBusiness.MsgIdShipped)
+                {
+                    // 出荷済は編集させず、詳細（照会）へ戻す（手順 3-2。ERR-BIZ）
+                    TempData[TempDetailMessage] = rv.ErrorMessage;
+                    TempData[TempDetailIsError] = true;
+                    return this.RedirectToDetail(id ?? 0);
+                }
+                return this.BackWithMessage(rv.ErrorMessage, true);   // ERR-NOTFOUND（一覧状態は保持された状態。DEC-ORD-28）
+            }
+
+            OrdTfEditViewModel model = this.BuildEditModel(rv, isEdit);
+            string msg = TempData[TempEditMessage] as string;
+            if (msg != null)
+            {
+                model.Message = msg;
+                model.MessageIsError = TempData[TempEditIsError] is bool b && b;
+            }
+            return this.DisplayEdit(model);
         }
+
+        /// <summary>
+        /// 受注の保存（EV-ORD-308）。成功・ERR-CONFLICT・ERR-NOTFOUND は PRG（リダイレクト）にし、
+        /// 検証エラーだけは入力値を保持して POST の応答で再描画する
+        /// POST: /OrdTf/Save
+        /// </summary>
+        /// <returns>詳細への遷移・編集の再表示・一覧への遷移・検証エラーの再描画</returns>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Save()
+        {
+            OrdTfEditViewModel model = this.ReadEditForm();
+            bool isEdit = model.Mode == "edit";
+
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfSave", "SQL", this.UserInfo);
+            pv.Mode = model.Mode;
+            pv.OrderID = model.OrderID;
+            pv.RowVersion = model.RowVersion;
+            pv.CustomerID = model.CustomerID;
+            pv.EmployeeIDText = model.EmployeeID;
+            pv.OrderDateText = model.OrderDate;
+            pv.RequiredDateText = model.RequiredDate;
+            pv.ShipViaText = model.ShipVia;
+            pv.FreightText = model.Freight;
+            pv.ShipName = model.ShipName;
+            pv.ShipAddress = model.ShipAddress;
+            pv.ShipCity = model.ShipCity;
+            pv.ShipRegion = model.ShipRegion;
+            pv.ShipPostalCode = model.ShipPostalCode;
+            pv.ShipCountry = model.ShipCountry;
+            foreach (OrdTfEditRow r in model.Lines)
+            {
+                OrdTfSaveLine l = new OrdTfSaveLine();
+                l.ProductIDText = r.ProductID;
+                l.UnitPriceText = r.UnitPrice;
+                l.DiscountText = r.Discount;
+                l.QuantityText = r.Quantity;
+                int op; decimal ou, od; int oq;
+                l.OriginalProductID = int.TryParse(r.OrigProductID, out op) ? (int?)op : null;
+                l.OriginalUnitPrice = decimal.TryParse(r.OrigUnitPrice, NumberStyles.Number, CultureInfo.InvariantCulture, out ou) ? (decimal?)ou : null;
+                l.OriginalDiscount = decimal.TryParse(r.OrigDiscount, NumberStyles.Number, CultureInfo.InvariantCulture, out od) ? (decimal?)od : null;
+                l.OriginalQuantity = int.TryParse(r.OrigQuantity, out oq) ? (int?)oq : null;
+                pv.SaveLines.Add(l);
+            }
+            foreach (string d in model.Deleted)
+            {
+                int p;
+                if (int.TryParse(d, out p)) pv.DeletedProductIDs.Add(p);
+            }
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+
+            if (!rv.ErrorFlag)
+            {
+                // 手順 6：完了メッセージ（情報。DEC-ORD-35）を出し、受注 ID を引き渡して詳細（照会）へ遷移する（PRG）
+                TempData[TempDetailMessage] = "受注 ID " + rv.OrderID + " を保存しました。";
+                TempData[TempDetailIsError] = false;
+                return this.RedirectToDetail(rv.OrderID);
+            }
+
+            if (rv.ErrorMessageID == OrdTfBusiness.MsgIdConflict)
+            {
+                // ERR-CONFLICT：更新を取り消し、入力を捨てて DB の最新を再表示する（DEC-ORD-34）。編集の画面を読み直す（PRG）
+                TempData[TempEditMessage] = rv.ErrorMessage;
+                TempData[TempEditIsError] = true;
+                return this.RedirectToEdit(model.OrderID);
+            }
+            if (rv.ErrorMessageID == OrdTfBusiness.MsgIdNotFound)
+            {
+                return this.BackWithMessage(rv.ErrorMessage, true);   // ERR-NOTFOUND：保持された一覧状態の一覧へ（DEC-ORD-28）
+            }
+
+            // ERR-VALIDATION：更新せず、入力値を保持して画面に留まる。項目単位は項目の直下、関連チェック・個別は共通メッセージ領域（DEC-CMN-04・05）
+            OrdTfParameterValue ipv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfEditInit", "SQL", this.UserInfo);
+            ipv.Mode = "new";   // 選択肢だけを取る
+            OrdTfReturnValue init = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(ipv, Iso);
+            model.Customers = init.CustomerOptions;
+            model.Employees = init.EmployeeOptions;
+            model.Shippers = init.ShipperOptions;
+            model.Products = init.ProductOptions;
+            for (int i = 0; i < rv.ErrorFields.Count; i++)
+            {
+                model.Errors[rv.ErrorFields[i]] = i < rv.ErrorFieldMessages.Count ? rv.ErrorFieldMessages[i] : "入力内容を確認してください。";
+            }
+            if (rv.ErrorMessages.Count > 0)
+            {
+                model.Message = string.Join(" ", rv.ErrorMessages);
+                model.MessageIsError = true;
+            }
+            await this.FillCustomerInfo(model);
+            return this.DisplayEdit(model);
+        }
+
+        /// <summary>
+        /// 詳細（照会）の「編集」（EV-ORD-202）：出荷日を読み直して判定し、編集の画面へ遷移する。出荷済なら遷移せず詳細へ戻してエラーを出す
+        /// GET: /OrdTf/EditStart?id=受注 ID
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> EditStart(int id)
+        {
+            OrdTfReturnValue rv = await this.CallDetail(id);
+            if (rv.ErrorFlag)
+            {
+                return this.BackWithMessage(rv.ErrorMessage, true);   // ERR-NOTFOUND（PRE-EXIST）
+            }
+            if (!rv.CanEdit)
+            {
+                TempData[TempDetailMessage] = MsgShippedFromDetail;   // 手順 1（ORD-T4。ERR-BIZ）
+                TempData[TempDetailIsError] = true;
+                return this.RedirectToDetail(id);
+            }
+            return this.RedirectToEdit(id);   // 手順 2
+        }
+
+        /// <summary>
+        /// 顧客選択の変更（EV-ORD-302 手順 2〜4）：顧客情報と出荷先の既定値を JSON で返す。無ければ ok = false
+        /// GET: /OrdTf/CustomerInfo?id=顧客 ID
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> CustomerInfo(string id)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfCustomer", "SQL", this.UserInfo);
+            pv.CustomerID = id;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+            if (rv.ErrorFlag) return Json(new { ok = false });
+            return Json(new
+            {
+                ok = true,
+                phone = rv.CustomerPhone,
+                address = rv.CustomerAddress,
+                shipName = rv.ShipName,
+                shipAddress = rv.ShipAddress,
+                shipCity = rv.ShipCity,
+                shipRegion = rv.ShipRegion,
+                shipPostalCode = rv.ShipPostalCode,
+                shipCountry = rv.ShipCountry
+            });
+        }
+
+        /// <summary>
+        /// 明細の商品選択の変更（EV-ORD-306 手順 3・4）：単価・在庫を JSON で返す。無ければ ok = false
+        /// GET: /OrdTf/ProductInfo?id=商品 ID
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> ProductInfo(int id)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfProduct", "SQL", this.UserInfo);
+            pv.ProductID = id;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+            if (rv.ErrorFlag) return Json(new { ok = false });
+            return Json(new
+            {
+                ok = true,
+                unitPrice = rv.UnitPrice.HasValue ? rv.UnitPrice.Value.ToString("0.00", CultureInfo.InvariantCulture) : "",
+                stock = rv.UnitsInStock.HasValue ? rv.UnitsInStock.Value.ToString(CultureInfo.InvariantCulture) : ""
+            });
+        }
+
+        /// <summary>
+        /// 入力画面の中のイベント（顧客選択・商品選択）で ERR-NOTFOUND になったとき（DEC-ORD-40）：保持された一覧状態の一覧へ戻る
+        /// GET: /OrdTf/Missing
+        /// </summary>
+        [HttpGet]
+        public IActionResult Missing()
+        {
+            return this.BackWithMessage(OrdTfBusiness.MsgNotFound, true);
+        }
+
+        /// <summary>B層（OrdTfEditInit）の戻り値から、画面のビュー モデルを作る</summary>
+        private OrdTfEditViewModel BuildEditModel(OrdTfReturnValue rv, bool isEdit)
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            OrdTfEditViewModel m = new OrdTfEditViewModel();
+            m.Mode = isEdit ? "edit" : "new";
+            m.Customers = rv.CustomerOptions;
+            m.Employees = rv.EmployeeOptions;
+            m.Shippers = rv.ShipperOptions;
+            m.Products = rv.ProductOptions;
+
+            if (!isEdit)
+            {
+                // 登録モード（手順 2）：受注日は当日、送料は 0、明細は空行 1 行（割引率 0・数量 1。DEC-ORD-39）。その他は未入力
+                m.OrderDate = DateTime.Today.ToString("yyyy/MM/dd", inv);
+                m.Freight = "0";
+                m.CustomerID = m.EmployeeID = m.RequiredDate = m.ShipVia = "";
+                m.ShipName = m.ShipAddress = m.ShipCity = m.ShipRegion = m.ShipPostalCode = m.ShipCountry = "";
+                m.CustomerPhone = m.CustomerAddress = "";
+                m.Lines.Add(new OrdTfEditRow());
+                return m;
+            }
+
+            // 編集モード（手順 3）
+            m.OrderID = rv.OrderID;
+            m.RowVersion = rv.RowVersion;
+            m.CustomerID = rv.EditCustomerID ?? "";
+            m.EmployeeID = rv.EditEmployeeID.HasValue ? rv.EditEmployeeID.Value.ToString(inv) : "";
+            m.OrderDate = rv.OrderDate.HasValue ? rv.OrderDate.Value.ToString("yyyy/MM/dd", inv) : "";
+            m.RequiredDate = rv.RequiredDate.HasValue ? rv.RequiredDate.Value.ToString("yyyy/MM/dd", inv) : "";
+            m.ShipVia = rv.EditShipVia.HasValue ? rv.EditShipVia.Value.ToString(inv) : "";
+            m.Freight = rv.Freight.HasValue ? rv.Freight.Value.ToString("0.00", inv) : "";
+            m.ShipName = rv.ShipName;
+            m.ShipAddress = rv.ShipAddress;
+            m.ShipCity = rv.ShipCity;
+            m.ShipRegion = rv.ShipRegion;
+            m.ShipPostalCode = rv.ShipPostalCode;
+            m.ShipCountry = rv.ShipCountry;
+            m.CustomerPhone = rv.CustomerPhone;
+            m.CustomerAddress = rv.CustomerAddress;
+            foreach (OrdTfEditLine l in rv.EditLines)
+            {
+                OrdTfEditRow r = new OrdTfEditRow();
+                r.ProductID = l.ProductID.ToString(inv);
+                r.UnitPrice = l.UnitPrice.ToString("0.00", inv);
+                r.Discount = l.Discount.ToString("0.####", inv);
+                r.Quantity = l.Quantity.ToString(inv);
+                r.Stock = l.UnitsInStock.HasValue ? l.UnitsInStock.Value.ToString(inv) : "";
+                r.OrigProductID = r.ProductID;
+                r.OrigUnitPrice = r.UnitPrice;
+                r.OrigDiscount = r.Discount;
+                r.OrigQuantity = r.Quantity;
+                r.OrigName = l.ProductName;
+                m.Lines.Add(r);
+            }
+            if (m.Lines.Count == 0) m.Lines.Add(new OrdTfEditRow());   // 明細が無い受注（DB は妥当性を保証しない）：空行 1 行
+            return m;
+        }
+
+        /// <summary>POST されたフォームからビュー モデルを組み立てる（明細は同じ名前の入力が行の順に並ぶ）</summary>
+        private OrdTfEditViewModel ReadEditForm()
+        {
+            IFormCollection f = Request.Form;
+            Func<string, string> g = k => f.ContainsKey(k) ? (f[k].FirstOrDefault() ?? "") : "";
+            OrdTfEditViewModel m = new OrdTfEditViewModel();
+            m.Mode = g("Mode") == "edit" ? "edit" : "new";
+            int oid, rver;
+            m.OrderID = int.TryParse(g("OrderID"), out oid) ? oid : 0;
+            m.RowVersion = int.TryParse(g("RowVersion"), out rver) ? rver : 0;
+            m.CustomerID = g("CustomerID");
+            m.EmployeeID = g("EmployeeID");
+            m.OrderDate = g("OrderDate");
+            m.RequiredDate = g("RequiredDate");
+            m.ShipVia = g("ShipVia");
+            m.Freight = g("Freight");
+            m.ShipName = g("ShipName");
+            m.ShipAddress = g("ShipAddress");
+            m.ShipCity = g("ShipCity");
+            m.ShipRegion = g("ShipRegion");
+            m.ShipPostalCode = g("ShipPostalCode");
+            m.ShipCountry = g("ShipCountry");
+            m.InitialSnapshot = g("InitialSnapshot");
+
+            string[] products = f["line_product"].ToArray();
+            Func<string, int, string> at = (k, i) => { string[] a = f[k].ToArray(); return i < a.Length ? a[i] : ""; };
+            for (int i = 0; i < products.Length; i++)
+            {
+                OrdTfEditRow r = new OrdTfEditRow();
+                r.ProductID = products[i];
+                r.UnitPrice = at("line_price", i);
+                r.Discount = at("line_discount", i);
+                r.Quantity = at("line_qty", i);
+                r.Stock = at("line_stock", i);
+                r.OrigProductID = at("line_origProduct", i);
+                r.OrigUnitPrice = at("line_origPrice", i);
+                r.OrigDiscount = at("line_origDiscount", i);
+                r.OrigQuantity = at("line_origQty", i);
+                r.OrigName = at("line_origName", i);
+                m.Lines.Add(r);
+            }
+            m.Deleted = f["deleted"].ToList();
+            return m;
+        }
+
+        /// <summary>
+        /// 検証エラーの再描画で、選ばれている顧客の電話・住所（表示のみで POST されない）を B層（OrdTfCustomer）で読み直す。
+        /// 登録モードでは、その顧客の既定の出荷先を画面の「自動で入れた値」の初期値として渡す（描き直しの後も、自動で入った出荷先を変えていなければ上書きの確認が出ない。DEC-ORD-32）
+        /// </summary>
+        private async Task FillCustomerInfo(OrdTfEditViewModel model)
+        {
+            if (string.IsNullOrWhiteSpace(model.CustomerID)) return;
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfCustomer", "SQL", this.UserInfo);
+            pv.CustomerID = model.CustomerID;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+            if (rv.ErrorFlag) return;
+            model.CustomerPhone = rv.CustomerPhone;
+            model.CustomerAddress = rv.CustomerAddress;
+            if (model.Mode != "edit")
+            {
+                model.AutoShip["ShipName"] = rv.ShipName;
+                model.AutoShip["ShipAddress"] = rv.ShipAddress;
+                model.AutoShip["ShipCity"] = rv.ShipCity;
+                model.AutoShip["ShipRegion"] = rv.ShipRegion;
+                model.AutoShip["ShipPostalCode"] = rv.ShipPostalCode;
+                model.AutoShip["ShipCountry"] = rv.ShipCountry;
+            }
+        }
+
+        /// <summary>詳細（照会）へ移る（URL の約束：/OrdTf/Detail?id=受注 ID）</summary>
+        private IActionResult RedirectToDetail(int id)
+        {
+            return LocalRedirect("~/OrdTf/Detail?id=" + id);
+        }
+
+        /// <summary>編集の画面へ移る（URL の約束：/OrdTf/Edit?mode=edit&amp;id=受注 ID）</summary>
+        private IActionResult RedirectToEdit(int id)
+        {
+            return LocalRedirect("~/OrdTf/Edit?mode=edit&id=" + id);
+        }
+
+        /// <summary>再描画。POST の入力値が ModelState に残らないよう、ModelState を消す</summary>
+        private IActionResult DisplayEdit(OrdTfEditViewModel model)
+        {
+            ModelState.Clear();
+            return View("Edit", model);
+        }
+
+        #endregion
+
         /// <summary>B層（OrdTfDetail）を呼ぶ</summary>
         private async Task<OrdTfReturnValue> CallDetail(int id)
         {

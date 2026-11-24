@@ -15,6 +15,7 @@
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/24  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
     //*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203。メインボタンは削除だけ。決定 4）
+    //*  2026/11/24  実装役            編集（B01）を EditStart へ（EV-ORD-202）
     //**********************************************************************************
 *@
 
@@ -62,9 +63,10 @@
 @* 共通メッセージ領域（エラーは text-danger、情報は text-info） *@
 <div id="messageArea" class="@msgClass">@Model.Message</div>
 
-@* 編集（B01。画面上部。出荷済のときは非活性。ORD-T4。押したときの振る舞いは次の回） *@
+@* 編集（B01。画面上部。出荷済のときは非活性。ORD-T4。押すと EV-ORD-202 手順 1 の判定（EditStart）を経て編集の画面へ遷移する） *@
 <div class="mb-2">
-    <button type="button" id="btnEdit" class="btn btn-primary" disabled="@(!d.CanEdit)">編集</button>
+    <button type="button" id="btnEdit" class="btn btn-primary" disabled="@(!d.CanEdit)"
+            onclick="location.href='@Url.Content("~/OrdTf/EditStart?id=" + d.OrderID)'">編集</button>
 </div>
 
 @* 受注情報（SC-ORD-02-I01〜I10） *@
