@@ -1,3 +1,5 @@
 2026-11-13 12:47	net48	ref=develop	richclient=False	zip=D0C576284E55
 2026-11-13 13:10	netcore100	ref=develop	richclient=False	zip=D0C576284E55
 2026-11-13 14:16	net48	ref=develop	richclient=True	zip=D0C576284E55
+2026-11-24 13:54	net48	ref=develop	richclient=True	zip=748ACF6F47E4
+2026-11-24 13:54	netcore100	ref=develop	richclient=False	zip=748ACF6F47E4
