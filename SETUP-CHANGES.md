@@ -19,4 +19,5 @@
 
 確かめ（2026-11-24。基盤は develop の ZIP 748ACF6F47E4）：B層 82 件 net10.0・net48、E2E Core 36 件がすべて通った。受注は 830 件のまま。
 - `OT_RESOURCE_ROOT` を User に設定する前から動いていたシェル・セッションには、値が届かない（B層 82 件が `%OT_RESOURCE_ROOT%\Log\SampleLogConf.xml` が無いで落ちた）。設定の後に開いた端末で始める。
-- net48 の `MVC_Sample.Tests` は `build-app.ps1` で組まれない。MSBuild で `/t:restore` と `/t:rebuild` を**分けて**組む（1 回の `/t:restore,build` では「使用できるテストはありません」になった）。
+- net48 の `MVC_Sample.Tests` は `build-app.ps1` で組まれない。`opentouryo-test-layer-b` のとおり `MSBuild.exe <csproj> -restore` の後に `dotnet test <csproj> --no-build` で流す
+  （2026-11-24 に代行役が、スキルと違う `/t:restore,build` の 1 回で組み、「使用できるテストはありません」になった。restore と build を分けて組み直して通った）。
