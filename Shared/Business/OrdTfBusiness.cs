@@ -17,6 +17,7 @@
 //*  2026/11/15  実装役            EV-ORD-105 の並べ替え（SortColumn・SortDescending を SQL 定義の ORDER BY へ）
 //*  2026/11/24  実装役            EV-ORD-201・203（OrdTfDetail・OrdTfDelete）の空の UOC（テスト先行の Red 用）
 //*  2026/11/24  実装役            実装（Green）：EV-ORD-201 の詳細の読み込み、EV-ORD-203 の削除（明細 → 受注。業務例外でロールバック）
+//*  2026/11/24  実装役            EV-ORD-301〜308（OrdTfEditInit・OrdTfCustomer・OrdTfProduct・OrdTfSave）の空の UOC（テスト先行の Red 用）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -308,6 +309,33 @@ namespace WSServer_sample.Business
             // ↑業務処理-----------------------------------------------------
         }
 
+        /// <summary>受注詳細（登録・編集）のページ読み込み（EV-ORD-301）。Red 用の空の土台</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfEditInit(OrdTfParameterValue pv)
+        {
+            this.ReturnValue = new OrdTfReturnValue();
+        }
+
+        /// <summary>顧客選択の変更（EV-ORD-302 手順 2〜4）。Red 用の空の土台</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfCustomer(OrdTfParameterValue pv)
+        {
+            this.ReturnValue = new OrdTfReturnValue();
+        }
+
+        /// <summary>明細の商品選択の変更（EV-ORD-306 手順 3・4）。Red 用の空の土台</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfProduct(OrdTfParameterValue pv)
+        {
+            this.ReturnValue = new OrdTfReturnValue();
+        }
+
+        /// <summary>受注の保存（EV-ORD-308）。Red 用の空の土台</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfSave(OrdTfParameterValue pv)
+        {
+            this.ReturnValue = new OrdTfReturnValue();
+        }
         #endregion
 
         #region 検証・共通処理

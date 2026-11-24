@@ -14,6 +14,7 @@
 //*  ----------  ----------------  -------------------------------------------------
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。契約はテスト仕様 1.3）
 //*  2026/11/24  実装役            受注詳細（OrdTfDetailLine と詳細のメンバ）を追加（EV-ORD-201。Red の足場。契約はテスト仕様 1.1）
+//*  2026/11/24  実装役            受注詳細（登録・編集）のメンバ・OrdTfEditLine を追加（EV-ORD-301〜308。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -91,6 +92,34 @@ namespace WSIFType_sample
         public decimal Amount;
     }
 
+    /// <summary>受注詳細（編集）の明細の 1 行（OrdTfEditInit。EV-ORD-301 手順 3-4）</summary>
+    [Serializable()]
+    public class OrdTfEditLine
+    {
+        /// <summary>商品 ID</summary>
+        public int ProductID;
+
+        /// <summary>商品名（付記なし）</summary>
+        public string ProductName;
+
+        /// <summary>廃番か</summary>
+        public bool Discontinued;
+
+        /// <summary>単価</summary>
+        public decimal UnitPrice;
+
+        /// <summary>割引率（0〜1）</summary>
+        public decimal Discount;
+
+        /// <summary>数量</summary>
+        public int Quantity;
+
+        /// <summary>在庫（NULL は null）</summary>
+        public int? UnitsInStock;
+
+        /// <summary>明細の行バージョン</summary>
+        public int RowVersion;
+    }
     /// <summary>受注一覧（OrdTf）の戻り値クラス</summary>
     /// <remarks>シリアライズ可能にする（WS対応）</remarks>
     [Serializable()]
@@ -184,6 +213,40 @@ namespace WSIFType_sample
 
         /// <summary>編集ボタンの活性（ShippedDate が NULL のとき true）</summary>
         public bool CanEdit;
+
+        #endregion
+
+        #region 受注詳細（登録・編集。EV-ORD-301〜308）
+
+        /// <summary>配送業者の選択肢（OrdTfEditInit。先頭に空白の選択肢）</summary>
+        public List<OrdTfOption> ShipperOptions = new List<OrdTfOption>();
+
+        /// <summary>商品の選択肢（OrdTfEditInit。先頭に空白の選択肢。廃番を除く）</summary>
+        public List<OrdTfOption> ProductOptions = new List<OrdTfOption>();
+
+        /// <summary>編集の顧客 ID（NULL は null）</summary>
+        public string EditCustomerID;
+
+        /// <summary>編集の担当者 ID（NULL は null）</summary>
+        public int? EditEmployeeID;
+
+        /// <summary>編集の配送業者 ID（NULL は null）</summary>
+        public int? EditShipVia;
+
+        /// <summary>編集の明細（商品名の昇順）</summary>
+        public List<OrdTfEditLine> EditLines = new List<OrdTfEditLine>();
+
+        /// <summary>商品名（OrdTfProduct）</summary>
+        public string ProductName;
+
+        /// <summary>商品マスタの単価（OrdTfProduct）</summary>
+        public decimal? UnitPrice;
+
+        /// <summary>商品マスタの在庫（OrdTfProduct。NULL は null）</summary>
+        public int? UnitsInStock;
+
+        /// <summary>保存の検証で、共通メッセージ領域に出すもの（OrdTfSave）</summary>
+        public List<string> ErrorMessages = new List<string>();
 
         #endregion
     }

@@ -156,12 +156,12 @@ namespace MVC_Sample.E2ETests
         }
 
         /// <summary>商品を入れる。ProductID を返す（名前の既定は "Tf" + GUID 8 桁。mark 指定時は "Tf" + 目印 + GUID 8 桁。在庫 null で NULL）</summary>
-        public int NewProduct(string name = null, bool discontinued = false, int? unitsInStock = 0, char? mark = null)
+        public int NewProduct(string name = null, bool discontinued = false, int? unitsInStock = 0, char? mark = null, decimal? unitPrice = null)
         {
             if (name == null) name = mark.HasValue ? "Tf" + mark.Value + Guid8() : "Tf" + Guid8();
             int id = Convert.ToInt32(ExecScalar(
-                "INSERT INTO Products (ProductName, UnitsInStock, Discontinued) VALUES (@n, @s, @d); SELECT CAST(SCOPE_IDENTITY() AS int);",
-                P("@n", SqlDbType.NVarChar, name), P("@s", SqlDbType.SmallInt, unitsInStock), P("@d", SqlDbType.Bit, discontinued)));
+                "INSERT INTO Products (ProductName, UnitPrice, UnitsInStock, Discontinued) VALUES (@n, ISNULL(@u, 0), @s, @d); SELECT CAST(SCOPE_IDENTITY() AS int);",
+                P("@n", SqlDbType.NVarChar, name), P("@u", SqlDbType.Money, unitPrice), P("@s", SqlDbType.SmallInt, unitsInStock), P("@d", SqlDbType.Bit, discontinued)));
             products.Add(id);
             ProductNames[id] = name;
             return id;
@@ -230,6 +230,130 @@ namespace MVC_Sample.E2ETests
             return ids;
         }
 
+        // ---------------------------------------------------------------- 受注詳細（登録・編集）の確かめ
+
+        /// <summary>Orders の 1 行（DB を直接読んだ値）</summary>
+        public sealed class OrderRow
+        {
+            public string CustomerID;
+            public int? EmployeeID;
+            public DateTime? OrderDate;
+            public DateTime? RequiredDate;
+            public DateTime? ShippedDate;
+            public int? ShipVia;
+            public decimal? Freight;
+            public string ShipName;
+            public string ShipAddress;
+            public string ShipCity;
+            public string ShipRegion;
+            public string ShipPostalCode;
+            public string ShipCountry;
+            public int RowVersion;
+        }
+
+        /// <summary>Order Details の 1 行（DB を直接読んだ値）</summary>
+        public sealed class DetailRow
+        {
+            public int ProductID;
+            public decimal UnitPrice;
+            public int Quantity;
+            public decimal Discount;
+            public int RowVersion;
+        }
+
+        private static T Nz<T>(object v) { return v == null || v is DBNull ? default(T) : (T)v; }
+
+        /// <summary>受注 1 行を読む（無ければ null）</summary>
+        public static OrderRow GetOrder(int orderId)
+        {
+            using (SqlConnection cn = new SqlConnection(ConnectionString))
+            using (SqlCommand cmd = new SqlCommand(
+                "SELECT CustomerID, EmployeeID, OrderDate, RequiredDate, ShippedDate, ShipVia, Freight, ShipName, ShipAddress, " +
+                "ShipCity, ShipRegion, ShipPostalCode, ShipCountry, RowVersion FROM Orders WHERE OrderID = @o", cn))
+            {
+                cmd.Parameters.Add(P("@o", SqlDbType.Int, orderId));
+                cn.Open();
+                using (SqlDataReader r = cmd.ExecuteReader())
+                {
+                    if (!r.Read()) return null;
+                    OrderRow o = new OrderRow();
+                    o.CustomerID = r.IsDBNull(0) ? null : r.GetString(0).Trim();
+                    o.EmployeeID = r.IsDBNull(1) ? (int?)null : r.GetInt32(1);
+                    o.OrderDate = r.IsDBNull(2) ? (DateTime?)null : r.GetDateTime(2);
+                    o.RequiredDate = r.IsDBNull(3) ? (DateTime?)null : r.GetDateTime(3);
+                    o.ShippedDate = r.IsDBNull(4) ? (DateTime?)null : r.GetDateTime(4);
+                    o.ShipVia = r.IsDBNull(5) ? (int?)null : r.GetInt32(5);
+                    o.Freight = r.IsDBNull(6) ? (decimal?)null : r.GetDecimal(6);
+                    o.ShipName = r.IsDBNull(7) ? null : r.GetString(7);
+                    o.ShipAddress = r.IsDBNull(8) ? null : r.GetString(8);
+                    o.ShipCity = r.IsDBNull(9) ? null : r.GetString(9);
+                    o.ShipRegion = r.IsDBNull(10) ? null : r.GetString(10);
+                    o.ShipPostalCode = r.IsDBNull(11) ? null : r.GetString(11);
+                    o.ShipCountry = r.IsDBNull(12) ? null : r.GetString(12);
+                    o.RowVersion = r.GetInt32(13);
+                    return o;
+                }
+            }
+        }
+
+        /// <summary>明細を ProductID の昇順で読む</summary>
+        public static List<DetailRow> GetDetails(int orderId)
+        {
+            List<DetailRow> list = new List<DetailRow>();
+            using (SqlConnection cn = new SqlConnection(ConnectionString))
+            using (SqlCommand cmd = new SqlCommand(
+                "SELECT ProductID, UnitPrice, Quantity, Discount, RowVersion FROM [Order Details] WHERE OrderID = @o ORDER BY ProductID", cn))
+            {
+                cmd.Parameters.Add(P("@o", SqlDbType.Int, orderId));
+                cn.Open();
+                using (SqlDataReader r = cmd.ExecuteReader())
+                {
+                    while (r.Read())
+                    {
+                        DetailRow d = new DetailRow();
+                        d.ProductID = r.GetInt32(0);
+                        d.UnitPrice = r.GetDecimal(1);
+                        d.Quantity = r.GetInt16(2);
+                        d.Discount = Convert.ToDecimal(r.GetFloat(3));
+                        d.RowVersion = r.GetInt32(4);
+                        list.Add(d);
+                    }
+                }
+            }
+            return list;
+        }
+
+        /// <summary>他の利用者が明細だけを更新したことを模す（Orders.RowVersion は変えない）</summary>
+        public static void BumpDetail(int orderId, int productId)
+        {
+            ExecScalar("UPDATE [Order Details] SET RowVersion = RowVersion + 1 WHERE OrderID = @o AND ProductID = @p",
+                P("@o", SqlDbType.Int, orderId), P("@p", SqlDbType.Int, productId));
+        }
+
+        /// <summary>他の利用者の出荷確定を模す（出荷日を設定し、行バージョンを +1）</summary>
+        public static void ShipOrder(int orderId)
+        {
+            ExecScalar("UPDATE Orders SET ShippedDate = @d, RowVersion = RowVersion + 1 WHERE OrderID = @o",
+                P("@d", SqlDbType.DateTime, DateTime.Today), P("@o", SqlDbType.Int, orderId));
+        }
+
+        /// <summary>顧客で受注を数える</summary>
+        public static int CountOrdersOfCustomer(string customerId)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT COUNT(*) FROM Orders WHERE CustomerID = @c", P("@c", SqlDbType.NChar, customerId)));
+        }
+
+        /// <summary>出荷先名称が一致する受注を数える（他のテストと並行しても干渉しない目印として使う）</summary>
+        public static int CountOrdersOfShipName(string shipName)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT COUNT(*) FROM Orders WHERE ShipName = @s", P("@s", SqlDbType.NVarChar, shipName)));
+        }
+
+        /// <summary>他の利用者の顧客の削除を模す（受注は消さない。後始末は、無い行の削除でも落ちない）</summary>
+        public static void DeleteCustomer(string customerId)
+        {
+            ExecScalar("DELETE FROM Customers WHERE CustomerID = @c", P("@c", SqlDbType.NChar, customerId));
+        }
         /// <summary>入れた受注を消す（画面の操作の途中で、DB の受注を減らすために使う）</summary>
         public void DeleteOrders(IEnumerable<int> ids)
         {

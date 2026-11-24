@@ -17,6 +17,7 @@
 //*  2026/11/15  実装役            EV-ORD-105（一覧の並べ替え）を追加（Sort アクション。並べ替えの列・方向を hidden で保持）
 //*  2026/11/24  実装役            Red 用の空の土台（Detail・Back。段 2。EV-ORD-201・206 は段 4 で実装する）
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203・206：Detail・Delete・Back。一覧状態は Session に保持）
+//*  2026/11/24  実装役            Red 用の空の土台（Edit。EV-ORD-301 は段 4 で実装する）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -413,18 +414,17 @@ namespace MVC_Sample.Controllers
         }
 
         /// <summary>
-        /// 受注登録・編集（SC-ORD-03）への遷移先（EV-ORD-107）。この回は画面が無く、URL までを作る（次の回で実装する）。
-        /// 一覧状態は一覧の操作のたびに Session へ保持済み
-        /// GET: /OrdTf/Edit?mode=new
+        /// 受注詳細（登録・編集。SC-ORD-03）。Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
+        /// GET: /OrdTf/Edit?mode=new または /OrdTf/Edit?mode=edit&amp;id=受注 ID
         /// </summary>
-        /// <param name="mode">モード（new = 登録）</param>
-        /// <returns>未実装の知らせ（404。本文を持たせる＝ブラウザのエラー画面にしない）</returns>
+        /// <param name="mode">モード（new = 登録、edit = 編集）</param>
+        /// <param name="id">受注 ID（編集のみ）</param>
+        /// <returns>空の画面（IActionResult）</returns>
         [HttpGet]
-        public IActionResult Edit(string mode)
+        public IActionResult Edit(string mode, int? id)
         {
-            return StatusCode(404, "受注の登録・編集（SC-ORD-03）は、次の回で作成します。");
+            return View();
         }
-
         /// <summary>B層（OrdTfDetail）を呼ぶ</summary>
         private async Task<OrdTfReturnValue> CallDetail(int id)
         {
