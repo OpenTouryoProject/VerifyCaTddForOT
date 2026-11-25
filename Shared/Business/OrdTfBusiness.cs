@@ -22,6 +22,7 @@
 //*  2026/11/25  実装役            EV-ORD-401〜403（OrdTfShipInit・OrdTfShipSave・OrdTfShipCancel）の空の UOC（テスト先行の Red 用）
 //*  2026/11/25  実装役            実装（Green）：EV-ORD-401〜403（出荷ダイアログの表示・確定・取消。DB の ShippedDate を正とする＝DEC-ORD-60。在庫は加減算＋行バージョン＝DEC-ORD-59）
 //*  2026/11/25  実装役            読み込み時から存在する行は DB で決める（OriginalProductID を信じない。DEC-ORD-49）。削除の印と残す行の食い違い（ORD-T5）
+//*  2026/11/26  実装役            EV-ORD-501（OrdTfReport）の空の UOC（テスト先行の Red 用）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -892,6 +893,21 @@ namespace WSServer_sample.Business
 
             rv.OrderID = pv.OrderID;
             rv.RowVersion = pv.RowVersion + 1;
+
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>受注帳票プレビューの読み込み（EV-ORD-501。Red 用の空の UOC：戻り値を設定するだけ）</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfReport(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+
+            // （段 4 で実装する）
 
             // ↑業務処理-----------------------------------------------------
         }

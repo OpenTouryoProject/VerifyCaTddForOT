@@ -17,6 +17,7 @@
 //*  2026/11/24  実装役            受注詳細・削除のメンバ（OrderID・RowVersion）を追加（EV-ORD-201・203。Red の足場）
 //*  2026/11/24  実装役            受注詳細（登録・編集）のメンバ（EV-ORD-301〜308。Red の足場）
 //*  2026/11/25  実装役            出荷ステータス更新ダイアログのメンバ（EV-ORD-401〜403。Red の足場）
+//*  2026/11/26  実装役            受注帳票プレビューのメンバ（IssueDate。EV-ORD-501。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -120,6 +121,13 @@ namespace WSIFType_sample
 
         /// <summary>表示時点の出荷済（true）／未出荷（false）の別（OrdTfShipSave。DB の ShippedDate が正＝DEC-ORD-60）</summary>
         public bool DisplayedShipped;
+
+        #endregion
+
+        #region 受注帳票プレビュー（EV-ORD-501。OrderID は既存を再利用）
+
+        /// <summary>発行日（SC-ORD-05-I03。OrdTfReport）。null は当日（DateTime.Today）。画面は渡さない。支払期限の月末・閏年・年またぎをテストするための入力</summary>
+        public DateTime? IssueDate;
 
         #endregion
 

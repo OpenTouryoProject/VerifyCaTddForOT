@@ -20,6 +20,7 @@
 //*  2026/11/24  実装役            Red 用の空の土台（Edit。EV-ORD-301 は段 4 で実装する）
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-202・301〜309：Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing。保存は PRG）
 //*  2026/11/25  実装役            出荷ダイアログ（EV-ORD-401〜404。Ship・ShipSave・ShipCancel。ダイアログの中身は部分ビュー、結果は JSON の redirect）
+//*  2026/11/26  実装役            Red 用の空の土台（Report。段 2。EV-ORD-501 は段 4 で実装する）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -423,6 +424,19 @@ namespace MVC_Sample.Controllers
             this.SaveState(model);
 
             return this.Display(model);
+        }
+
+        /// <summary>
+        /// 受注帳票プレビューの表示（EV-ORD-501）。Red 用の空の土台（要素なし。段 4 で実装する）
+        /// GET: /OrdTf/Report?id=&amp;type=
+        /// </summary>
+        /// <param name="id">受注 ID</param>
+        /// <param name="type">帳票種別（delivery｜invoice）</param>
+        /// <returns>画面（IActionResult）</returns>
+        [HttpGet]
+        public IActionResult Report(int id, string type)
+        {
+            return View();
         }
 
         #region 受注詳細（登録・編集。Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing）

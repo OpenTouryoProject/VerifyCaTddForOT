@@ -16,6 +16,7 @@
 //*  2026/11/24  実装役            受注詳細（OrdTfDetailLine と詳細のメンバ）を追加（EV-ORD-201。Red の足場。契約はテスト仕様 1.1）
 //*  2026/11/24  実装役            受注詳細（登録・編集）のメンバ・OrdTfEditLine を追加（EV-ORD-301〜308。Red の足場）
 //*  2026/11/25  実装役            出荷ステータス更新ダイアログのメンバ・OrdTfShipStockLine を追加（EV-ORD-401〜403。Red の足場）
+//*  2026/11/26  実装役            受注帳票プレビューのメンバ（ShipToText・IssueDate・DueDate。EV-ORD-501。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -284,6 +285,19 @@ namespace WSIFType_sample
 
         /// <summary>SC-ORD-04-I08 の在庫引落の内訳（OrdTfShipInit。未出荷だけ。並びは仕様が決めていない）</summary>
         public List<OrdTfShipStockLine> StockLines = new List<OrdTfShipStockLine>();
+
+        #endregion
+
+        #region 受注帳票プレビュー（EV-ORD-501。OrderID・EmployeeName・ShipperName・OrderDate・ShippedDate・Ship*・Lines・Subtotal・Freight・Total は既存を再利用）
+
+        /// <summary>宛先（SC-ORD-05-I05。OrdTfReport）。出荷先情報 6 項目をこの順に連結した文字列。区切りは定めない・空の要素は詰める（DEC-ORD-65）</summary>
+        public string ShipToText;
+
+        /// <summary>発行日（SC-ORD-05-I03。OrdTfReport）。引数の IssueDate（null は当日）。時刻は 00:00</summary>
+        public DateTime IssueDate;
+
+        /// <summary>支払期限（SC-ORD-05-I14。OrdTfReport）。発行日の翌月の末日。帳票種別によらず常に返す</summary>
+        public DateTime DueDate;
 
         #endregion
     }
