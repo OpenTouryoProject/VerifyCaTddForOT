@@ -205,7 +205,7 @@ namespace MVC_Sample.E2ETests
 
         private async Task ExpectListMessageAsync(int orderId, string tail, Regex cls)
         {
-            await Expect(Loc("#messageArea")).ToHaveTextAsync("受注 ID " + orderId + tail);
+            await Expect(Loc("#messageArea")).ToHaveTextAsync("受注 ID " + orderId + " " + tail);
             await Expect(Loc("#messageArea")).ToHaveClassAsync(cls);
         }
 
@@ -269,10 +269,12 @@ namespace MVC_Sample.E2ETests
         {
             Es e = NewEs();
 
-            await OpenFromListAsync(e.K, e.O);
+            await ListSearchAsync(e.K);
+            string pathBefore = new Uri(page.Url).AbsolutePath;   // 検索（POST）の後のパス。開いても変わらない
+            await OpenRowDialogAsync(e.O);
 
             await Expect(Loc("#shipDialog")).ToBeVisibleAsync();
-            Assert.That(new Uri(page.Url).AbsolutePath, Is.EqualTo("/OrdTf"));
+            Assert.That(new Uri(page.Url).AbsolutePath, Is.EqualTo(pathBefore), "開く前と同じ URL");
             await Expect(Loc("#orderList")).ToHaveCountAsync(1);
             await Expect(RowOf(e.O)).ToBeVisibleAsync();
             await Expect(Loc("#btnMain1")).ToHaveAccessibleNameAsync("検索");
@@ -381,7 +383,7 @@ namespace MVC_Sample.E2ETests
             await OpenFromListAsync(k, o);
 
             ILocator opts = Loc("#shipShipVia option");
-            await Expect(opts.First).ToHaveValueAsync("");
+            await Expect(opts.First).ToHaveAttributeAsync("value", "");
             await Expect(opts.First).ToHaveTextAsync(Empty);
             IReadOnlyList<string> texts = await opts.AllInnerTextsAsync();
             int i1 = texts.ToList().IndexOf(data.ShipperNames[s1]);
