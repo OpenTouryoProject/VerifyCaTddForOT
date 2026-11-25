@@ -19,6 +19,7 @@
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203・206：Detail・Delete・Back。一覧状態は Session に保持）
 //*  2026/11/24  実装役            Red 用の空の土台（Edit。EV-ORD-301 は段 4 で実装する）
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-202・301〜309：Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing。保存は PRG）
+//*  2026/11/25  実装役            出荷ダイアログ（EV-ORD-401〜404。Ship・ShipSave・ShipCancel。ダイアログの中身は部分ビュー、結果は JSON の redirect）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -786,6 +787,181 @@ namespace MVC_Sample.Controllers
         {
             ModelState.Clear();
             return View("Edit", model);
+        }
+
+        #endregion
+
+        #region 出荷ステータス更新ダイアログ（EV-ORD-108・205・401〜404。Ship・ShipSave・ShipCancel）
+
+        /// <summary>
+        /// 出荷ダイアログの表示（初期化。EV-ORD-401）：ダイアログの中身（部分ビュー）を返す。元画面の上に重ねるのは画面の script（F-5）。
+        /// 受注が無ければ ERR-NOTFOUND：一覧へ戻る指示（JSON の redirect）を返す（DEC-ORD-52）
+        /// GET: /OrdTf/Ship?id=&amp;from=list|detail
+        /// </summary>
+        /// <param name="id">受注 ID</param>
+        /// <param name="from">呼び出し元（list＝受注一覧、detail＝受注詳細）</param>
+        /// <returns>ダイアログの中身（部分ビュー）か、戻り先の指示（JSON）</returns>
+        [HttpGet]
+        public async Task<IActionResult> Ship(int id, string from)
+        {
+            OrdTfReturnValue rv = await this.CallShipInit(id);
+            if (rv.ErrorFlag)
+            {
+                return this.ShipNotFound(rv.ErrorMessage);
+            }
+            return PartialView("Ship", this.BuildShipModel(rv, from));
+        }
+
+        /// <summary>
+        /// 出荷の確定・情報更新（EV-ORD-402）
+        /// POST: /OrdTf/ShipSave
+        /// 業務の検証は B層が DB の行で行う。画面が送る「表示時点の別」（displayedShipped）は B層に渡すだけで、業務の検証には使われない（DEC-ORD-60）
+        /// </summary>
+        /// <returns>成功・ERR-NOTFOUND は戻り先の指示（JSON）。検証・ERR-CONFLICT・ERR-BIZ はダイアログの中身（部分ビュー）</returns>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ShipSave(int id, int rowVersion, string from, bool displayedShipped,
+            string shippedDate, string shipVia, string freight)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfShipSave", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            pv.RowVersion = rowVersion;
+            pv.DisplayedShipped = displayedShipped;
+            pv.ShippedDateText = shippedDate;
+            pv.ShipViaText = shipVia;
+            pv.FreightText = freight;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+
+            if (!rv.ErrorFlag)
+            {
+                return this.ShipDone(from, id, "受注 ID " + id + " の出荷情報を更新しました。");   // 手順 8・9
+            }
+            if (rv.ErrorMessage == OrdTfBusiness.MsgNotFound)
+            {
+                return this.ShipNotFound(rv.ErrorMessage);
+            }
+
+            // ダイアログに留まる：最新（選択肢・内訳・出荷済／未出荷の別）で組み直す
+            OrdTfReturnValue latest = await this.CallShipInit(id);
+            if (latest.ErrorFlag)
+            {
+                return this.ShipNotFound(latest.ErrorMessage);
+            }
+            OrdTfShipViewModel m = this.BuildShipModel(latest, from);
+            if (rv.ErrorMessage == OrdTfBusiness.MsgConflict)
+            {
+                m.Message = rv.ErrorMessage;   // ERR-CONFLICT：入力は捨てて最新を再表示する（DEC-ORD-53）
+                return PartialView("Ship", m);
+            }
+
+            // 検証の違反（項目の直下。DEC-CMN-05）・ERR-BIZ（共通メッセージ領域。DEC-ORD-54）：入力値と保持した行バージョンを残す
+            m.ShippedDate = shippedDate;
+            m.ShipVia = shipVia ?? "";
+            m.Freight = freight;
+            m.RowVersion = rowVersion;
+            if (rv.ErrorFields.Count > 0)
+            {
+                for (int i = 0; i < rv.ErrorFields.Count; i++)
+                {
+                    string text = i < rv.ErrorFieldMessages.Count ? rv.ErrorFieldMessages[i] : "入力内容を確認してください。";
+                    switch (rv.ErrorFields[i])
+                    {
+                        case "ShippedDate": m.ErrorShippedDate = text; break;
+                        case "ShipVia": m.ErrorShipVia = text; break;
+                        case "Freight": m.ErrorFreight = text; break;
+                    }
+                }
+            }
+            else
+            {
+                m.Message = rv.ErrorMessage;
+            }
+            return PartialView("Ship", m);
+        }
+
+        /// <summary>
+        /// 出荷の取消（EV-ORD-403。確認ダイアログは画面の script の window.confirm）
+        /// POST: /OrdTf/ShipCancel
+        /// </summary>
+        /// <returns>成功・ERR-NOTFOUND は戻り先の指示（JSON）。ERR-CONFLICT・ERR-BIZ はダイアログの中身（部分ビュー）</returns>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ShipCancel(int id, int rowVersion, string from)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfShipCancel", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            pv.RowVersion = rowVersion;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+
+            if (!rv.ErrorFlag)
+            {
+                return this.ShipDone(from, id, "受注 ID " + id + " の出荷を取り消しました。");   // 手順 8・9
+            }
+            if (rv.ErrorMessage == OrdTfBusiness.MsgNotFound)
+            {
+                return this.ShipNotFound(rv.ErrorMessage);
+            }
+
+            // ERR-CONFLICT・ERR-BIZ：ダイアログに留まり、DB の最新で再表示する（DEC-ORD-53）
+            OrdTfReturnValue latest = await this.CallShipInit(id);
+            if (latest.ErrorFlag)
+            {
+                return this.ShipNotFound(latest.ErrorMessage);
+            }
+            OrdTfShipViewModel m = this.BuildShipModel(latest, from);
+            m.Message = rv.ErrorMessage;
+            return PartialView("Ship", m);
+        }
+
+        /// <summary>B層（OrdTfShipInit）を呼ぶ</summary>
+        private async Task<OrdTfReturnValue> CallShipInit(int id)
+        {
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfShipInit", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            return (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+        }
+
+        /// <summary>B層の戻り値からダイアログのビュー モデルを組む（入力欄は B層が返した初期値）</summary>
+        private OrdTfShipViewModel BuildShipModel(OrdTfReturnValue rv, string from)
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            return new OrdTfShipViewModel
+            {
+                From = from == "detail" ? "detail" : "list",
+                OrderID = rv.OrderID,
+                RowVersion = rv.RowVersion,
+                Shipped = rv.ShipIsShipped,
+                CustomerName = rv.CustomerName,
+                Status = rv.Status,
+                RequiredDate = rv.RequiredDate.HasValue ? rv.RequiredDate.Value.ToString("yyyy/MM/dd", inv) : "",
+                ShippedDate = rv.ShipDate.HasValue ? rv.ShipDate.Value.ToString("yyyy/MM/dd", inv) : "",
+                ShipVia = rv.ShipViaID.HasValue ? rv.ShipViaID.Value.ToString(inv) : "",
+                Freight = rv.Freight.HasValue ? rv.Freight.Value.ToString("0.00", inv) : "",
+                ShipperOptions = rv.ShipperOptions,
+                StockLines = rv.StockLines
+            };
+        }
+
+        /// <summary>確定・取消の成功：元画面を再読み込みする指示を返す。完了メッセージ（情報）は元画面に出す（DEC-ORD-55）。一覧は保持された一覧状態で再検索（DEC-ORD-51）</summary>
+        private IActionResult ShipDone(string from, int id, string message)
+        {
+            if (from == "detail")
+            {
+                TempData[TempDetailMessage] = message;
+                TempData[TempDetailIsError] = false;
+                return Json(new { redirect = Url.Action("Detail", new { id }) });
+            }
+            TempData[TempMessage] = message;
+            TempData[TempIsError] = false;
+            return Json(new { redirect = Url.Action("Back") });
+        }
+
+        /// <summary>ERR-NOTFOUND：ダイアログを閉じ、保持された一覧状態の一覧へ戻してエラーを出す指示を返す（DEC-ORD-52）</summary>
+        private IActionResult ShipNotFound(string message)
+        {
+            TempData[TempMessage] = message;
+            TempData[TempIsError] = true;
+            return Json(new { redirect = Url.Action("Back") });
         }
 
         #endregion

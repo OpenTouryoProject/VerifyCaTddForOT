@@ -20,6 +20,7 @@
 //*  2026/11/24  実装役            EV-ORD-301〜308（OrdTfEditInit・OrdTfCustomer・OrdTfProduct・OrdTfSave）の空の UOC（テスト先行の Red 用）
 //*  2026/11/24  実装役            実装（Green）：EV-ORD-301〜308（選択肢・編集の読み込み・顧客・商品・保存。保存は 1 トランザクション）
 //*  2026/11/25  実装役            EV-ORD-401〜403（OrdTfShipInit・OrdTfShipSave・OrdTfShipCancel）の空の UOC（テスト先行の Red 用）
+//*  2026/11/25  実装役            実装（Green）：EV-ORD-401〜403（出荷ダイアログの表示・確定・取消。DB の ShippedDate を正とする＝DEC-ORD-60。在庫は加減算＋行バージョン＝DEC-ORD-59）
 //*  2026/11/25  実装役            読み込み時から存在する行は DB で決める（OriginalProductID を信じない。DEC-ORD-49）。削除の印と残す行の食い違い（ORD-T5）
 //**********************************************************************************
 
@@ -115,6 +116,29 @@ namespace WSServer_sample.Business
 
         /// <summary>項目名（ErrorFields）：受注日（終了）</summary>
         private const string FieldTo = "OrderDateTo";
+
+        /// <summary>メッセージ ID（DEC-CMN-01）</summary>
+        public const string MsgIdShort = "ORDTF007";
+
+        /// <summary>メッセージ ID（DEC-CMN-01）</summary>
+        public const string MsgIdNotShipped = "ORDTF008";
+
+        /// <summary>在庫不足（EV-ORD-402 手順 4-2。後ろに商品名を続ける）</summary>
+        public const string MsgShort = "在庫が不足しています：";
+
+        /// <summary>在庫不足で複数の商品名を列挙するときの区切り（DEC-ORD-61：区切りは定めない）</summary>
+        private const string MsgShortSeparator = "、";
+
+        /// <summary>出荷されていない受注の取消（EV-ORD-403 手順 4）</summary>
+        public const string MsgNotShipped = "この受注は出荷されていません。";
+
+        /// <summary>出荷日が受注日より前（EV-ORD-402 検証内容。ORD-T3）</summary>
+        private const string MsgShippedBeforeOrder = "出荷日は受注日以降を指定してください。";
+
+        /// <summary>項目名（ErrorFields）：出荷日・配送業者・送料（出荷ダイアログ）</summary>
+        private const string FieldShippedDate = "ShippedDate";
+        private const string FieldShipVia = "ShipVia";
+        private const string FieldFreight = "Freight";
 
         #endregion
 
@@ -346,7 +370,7 @@ namespace WSServer_sample.Business
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>出荷ダイアログの表示（初期化。EV-ORD-401）。Red の足場：戻り値を設定するだけ</summary>
+        /// <summary>出荷ダイアログの表示（初期化。EV-ORD-401）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfShipInit(OrdTfParameterValue pv)
         {
@@ -355,11 +379,56 @@ namespace WSServer_sample.Business
             this.ReturnValue = rv;
 
             // ↓業務処理-----------------------------------------------------
-            // （段 4 で実装する）
+
+            // 手順 1・2：受注 1 件（顧客は外部結合）。0 件は ERR-NOTFOUND
+            DataTable dt = this.ReadShipHeader(pv.OrderID);
+            if (dt.Rows.Count == 0)
+            {
+                throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
+            }
+            DataRow h = dt.Rows[0];
+
+            // 手順 3：受注 ID・顧客名・要求納期・状況（状況の判定）
+            rv.OrderID = Convert.ToInt32(h["OrderID"]);
+            rv.CustomerName = ToText(h["CustomerName"]);
+            rv.RequiredDate = ToDate(h["RequiredDate"]);
+            rv.ShippedDate = ToDate(h["ShippedDate"]);
+            rv.Status = JudgeStatus(rv.RequiredDate, rv.ShippedDate, DateTime.Today);
+
+            // 手順 5-2・5-3・6-1：配送業者・送料は受注の値（NULL は未選択・空）。手順 7：行バージョン
+            rv.ShipViaID = h["ShipVia"] == DBNull.Value ? (int?)null : Convert.ToInt32(h["ShipVia"]);
+            rv.Freight = h["Freight"] == DBNull.Value ? (decimal?)null : Convert.ToDecimal(h["Freight"]);
+            rv.RowVersion = Convert.ToInt32(h["RowVersion"]);
+
+            // 手順 4：配送業者の選択肢（先頭に空白の選択肢。会社名の昇順）
+            rv.ShipperOptions = this.BuildOptions("OrdTfShippers.sql", true, "ShipperID", "CompanyName", null);
+
+            rv.ShipIsShipped = rv.ShippedDate.HasValue;
+            if (rv.ShipIsShipped)
+            {
+                // 手順 6-1・6-2：出荷済は出荷日を表示し、在庫引落の内訳は表示しない
+                rv.ShipDate = rv.ShippedDate;
+                return;
+            }
+
+            // 手順 5-1：未出荷の出荷日は当日
+            rv.ShipDate = DateTime.Today;
+
+            // 手順 5-4：在庫引落の内訳（Products は内部結合）。Quantity > UnitsInStock の行は強調（Short）。在庫が NULL の行の Short は定めない（DEC-ORD-62）
+            foreach (DataRow dr in this.ReadShipLines(pv.OrderID).Rows)
+            {
+                OrdTfShipStockLine line = new OrdTfShipStockLine();
+                line.ProductName = ToText(dr["ProductName"]);
+                line.Quantity = Convert.ToInt32(dr["Quantity"]);
+                line.UnitsInStock = dr["UnitsInStock"] == DBNull.Value ? (int?)null : Convert.ToInt32(dr["UnitsInStock"]);
+                line.Short = line.UnitsInStock.HasValue && line.Quantity > line.UnitsInStock.Value;
+                rv.StockLines.Add(line);
+            }
+
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>出荷の確定・情報更新（EV-ORD-402）。Red の足場：戻り値を設定するだけ</summary>
+        /// <summary>出荷の確定・情報更新（EV-ORD-402）。1 トランザクション（業務例外でフレームワークがロールバックする）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfShipSave(OrdTfParameterValue pv)
         {
@@ -368,11 +437,74 @@ namespace WSServer_sample.Business
             this.ReturnValue = rv;
 
             // ↓業務処理-----------------------------------------------------
-            // （段 4 で実装する）
+
+            // 手順 1：入力値の検証（全項目をまとめて。1 件でも違反があれば更新しない。受注の取得・排他より先）
+            DataTable dtHeader = this.ReadShipHeader(pv.OrderID);
+            DateTime? orderDate = dtHeader.Rows.Count > 0 ? ToDate(dtHeader.Rows[0]["OrderDate"]) : null;   // 無い受注・受注日が NULL は比べない（手順 3 の ERR-NOTFOUND・DEC-ORD-63）
+
+            DateTime shippedDate = DateTime.MinValue;
+            if (string.IsNullOrWhiteSpace(pv.ShippedDateText))
+            {
+                AddFieldError(rv, FieldShippedDate, "出荷日は必須です。");   // VAL-REQUIRED（文言は DEC-ORD-56 により定めない）
+            }
+            else if (!DateTime.TryParseExact(pv.ShippedDateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out shippedDate))
+            {
+                AddFieldError(rv, FieldShippedDate, "出荷日は yyyy/MM/dd の形式で指定してください。");   // VAL-DATE（DEC-ORD-56）
+            }
+            else if (orderDate.HasValue && shippedDate.Date < orderDate.Value.Date)
+            {
+                AddFieldError(rv, FieldShippedDate, MsgShippedBeforeOrder);   // VAL-DATE・ORD-T3（項目の直下。DEC-ORD-57。未来の日付も受け付ける＝DEC-ORD-58）
+            }
+
+            int shipVia = 0;
+            if (string.IsNullOrWhiteSpace(pv.ShipViaText))
+            {
+                AddFieldError(rv, FieldShipVia, "配送業者は必須です。");   // VAL-REQUIRED
+            }
+            else if (!TryParseInt(pv.ShipViaText, out shipVia) || !this.Exists("OrdTfExistsShipper.sql", "ShipperID", shipVia))
+            {
+                AddFieldError(rv, FieldShipVia, "指定された配送業者は存在しません。");   // VAL-EXISTS
+            }
+
+            decimal freight = 0m;   // 空は 0（DEC-ORD-01）
+            if (!string.IsNullOrWhiteSpace(pv.FreightText) && (!TryParseDecimal(pv.FreightText, out freight) || freight < 0m))
+            {
+                AddFieldError(rv, FieldFreight, "送料は 0 以上の数値で指定してください。");   // VAL-NUMERIC
+            }
+
+            if (rv.ErrorFields.Count > 0)
+            {
+                throw new BusinessApplicationException(MsgIdValidation, rv.ErrorFieldMessages[0], "");
+            }
+
+            // 手順 3：受注を、主キーと保持していた行バージョンで取得する（更新ロック）。0 件は ERR-CONFLICT か ERR-NOTFOUND
+            bool shippedInDb = this.LockShipOrder(pv.OrderID, pv.RowVersion);
+
+            // 手順 4・5：出荷済か未出荷かは、画面が送る「表示時点の別」（pv.DisplayedShipped）でなく、DB の ShippedDate で決める（DEC-ORD-60）
+            if (!shippedInDb)
+            {
+                this.DecreaseStock(pv.OrderID);   // 手順 4：在庫の検査と引き落とし（OD-T5・PRD-T5）
+            }
+
+            // 手順 6：出荷日・配送業者・送料を更新する（RowVersion + 1）。0 件は手順 3 と同じ分岐
+            CmnDao upd = new CmnDao(this.GetDam());
+            upd.SQLFileName = "OrdTfShipUpdateOrder.sql";
+            upd.SetParameter("ShippedDate", shippedDate);
+            upd.SetParameter("ShipVia", shipVia);
+            upd.SetParameter("Freight", freight);
+            upd.SetParameter("OrderID", pv.OrderID);
+            upd.SetParameter("RowVersion", pv.RowVersion);
+            if (upd.ExecInsUpDel_NonQuery() == 0)
+            {
+                this.ThrowConflictOrNotFound(pv.OrderID);
+            }
+
+            rv.OrderID = pv.OrderID;
+
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>出荷の取消（EV-ORD-403）。Red の足場：戻り値を設定するだけ</summary>
+        /// <summary>出荷の取消（EV-ORD-403）。1 トランザクション（業務例外でフレームワークがロールバックする）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfShipCancel(OrdTfParameterValue pv)
         {
@@ -381,8 +513,125 @@ namespace WSServer_sample.Business
             this.ReturnValue = rv;
 
             // ↓業務処理-----------------------------------------------------
-            // （段 4 で実装する）
+
+            // 手順 3：受注を、主キーと保持していた行バージョンで取得する（更新ロック）。0 件は ERR-CONFLICT か ERR-NOTFOUND
+            bool shippedInDb = this.LockShipOrder(pv.OrderID, pv.RowVersion);
+
+            // 手順 4：出荷されていなければ ERR-BIZ
+            if (!shippedInDb)
+            {
+                throw new BusinessApplicationException(MsgIdNotShipped, MsgNotShipped, "");
+            }
+
+            // 手順 5：明細ごとに在庫を戻す（UnitsInStock + Quantity。OD-T5）
+            foreach (DataRow dr in this.ReadShipLines(pv.OrderID).Rows)
+            {
+                CmnDao inc = new CmnDao(this.GetDam());
+                inc.SQLFileName = "OrdTfShipIncreaseStock.sql";
+                inc.SetParameter("Quantity", Convert.ToInt32(dr["Quantity"]));
+                inc.SetParameter("ProductID", Convert.ToInt32(dr["ProductID"]));
+                inc.ExecInsUpDel_NonQuery();
+            }
+
+            // 手順 6：出荷日を NULL に戻す（ShipVia・Freight は変更しない。RowVersion + 1）。0 件は手順 3 と同じ分岐
+            CmnDao upd = new CmnDao(this.GetDam());
+            upd.SQLFileName = "OrdTfShipClearOrder.sql";
+            upd.SetParameter("OrderID", pv.OrderID);
+            upd.SetParameter("RowVersion", pv.RowVersion);
+            if (upd.ExecInsUpDel_NonQuery() == 0)
+            {
+                this.ThrowConflictOrNotFound(pv.OrderID);
+            }
+
+            rv.OrderID = pv.OrderID;
+
             // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>出荷ダイアログの受注 1 件（顧客は外部結合）を読む。0 件なら行が無い</summary>
+        private DataTable ReadShipHeader(int orderId)
+        {
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfShipHeader.sql";
+            dao.SetParameter("OrderID", orderId);
+            DataTable dt = new DataTable();
+            dao.ExecSelectFill_DT(dt);
+            return dt;
+        }
+
+        /// <summary>受注の明細（商品名・数量・在庫。Products は内部結合。商品 ID の昇順）を読む</summary>
+        private DataTable ReadShipLines(int orderId)
+        {
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfShipStockLines.sql";
+            dao.SetParameter("OrderID", orderId);
+            DataTable dt = new DataTable();
+            dao.ExecSelectFill_DT(dt);
+            return dt;
+        }
+
+        /// <summary>
+        /// 受注を、主キーと保持していた行バージョンで更新ロック付きで取得する（EV-ORD-402・403 手順 3）。
+        /// 0 件は ERR-CONFLICT か ERR-NOTFOUND（業務例外）。出荷済（ShippedDate が NULL でない）かを返す
+        /// </summary>
+        private bool LockShipOrder(int orderId, int rowVersion)
+        {
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfShipLockOrder.sql";
+            dao.SetParameter("OrderID", orderId);
+            dao.SetParameter("RowVersion", rowVersion);
+            DataTable dt = new DataTable();
+            dao.ExecSelectFill_DT(dt);
+            if (dt.Rows.Count == 0)
+            {
+                this.ThrowConflictOrNotFound(orderId);
+            }
+            return dt.Rows[0]["ShippedDate"] != DBNull.Value;
+        }
+
+        /// <summary>更新件数 0 件のとき：受注の有無で ERR-CONFLICT と ERR-NOTFOUND を分けて業務例外を投げる（共通仕様 9.1）</summary>
+        private void ThrowConflictOrNotFound(int orderId)
+        {
+            if (this.Exists("OrdTfOrderCount.sql", "OrderID", orderId))
+            {
+                throw new BusinessApplicationException(MsgIdConflict, MsgConflict, "");
+            }
+            throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
+        }
+
+        /// <summary>
+        /// 出荷確定の在庫の検査と引き落とし（EV-ORD-402 手順 4。OD-T5・PRD-T5）。
+        /// 不足する商品は、全商品名を列挙して ERR-BIZ（何も更新しない）。在庫が NULL の商品は不足にしない。在庫は NULL のまま、Products.RowVersion だけ +1 する（DEC-ORD-62 は定めない）
+        /// </summary>
+        private void DecreaseStock(int orderId)
+        {
+            DataTable lines = this.ReadShipLines(orderId);
+
+            List<string> shortNames = new List<string>();
+            foreach (DataRow dr in lines.Rows)
+            {
+                if (dr["UnitsInStock"] != DBNull.Value && Convert.ToInt32(dr["Quantity"]) > Convert.ToInt32(dr["UnitsInStock"]))
+                {
+                    shortNames.Add(ToText(dr["ProductName"]));
+                }
+            }
+            if (shortNames.Count > 0)
+            {
+                throw new BusinessApplicationException(MsgIdShort, MsgShort + string.Join(MsgShortSeparator, shortNames), "");   // 区切り・並びは定めない（DEC-ORD-61）
+            }
+
+            // 引き落とし：UnitsInStock - Quantity の加減算（読んだ値で書き戻さない）。検査の後に他の要求が在庫を変えても、負にしない（条件付き更新）
+            foreach (DataRow dr in lines.Rows)
+            {
+                CmnDao dec = new CmnDao(this.GetDam());
+                dec.SQLFileName = "OrdTfShipDecreaseStock.sql";
+                dec.SetParameter("Quantity", Convert.ToInt32(dr["Quantity"]));
+                dec.SetParameter("ProductID", Convert.ToInt32(dr["ProductID"]));
+                if (dec.ExecInsUpDel_NonQuery() == 0)
+                {
+                    throw new BusinessApplicationException(MsgIdShort, MsgShort + ToText(dr["ProductName"]), "");
+                }
+            }
         }
 
         /// <summary>受注詳細（登録・編集）のページ読み込み（EV-ORD-301）</summary>

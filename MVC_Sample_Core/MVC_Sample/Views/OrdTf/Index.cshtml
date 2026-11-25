@@ -16,6 +16,7 @@
     //*  2026/11/13  実装役            新規作成（net48 版 MVC_Sample と同じ構成。Core 用に確認した）
     //*  2026/11/15  実装役            一覧の並べ替え（EV-ORD-105）：見出しのボタン・保持の hidden・並べ替え列の印（aria-sort と CSS）
     //*  2026/11/24  実装役            受注 ID を詳細へのリンクにし、新規登録（#btnNew）を足した（EV-ORD-106・107。決定 4）
+    //*  2026/11/25  実装役            「操作」列と各行の出荷更新（B04）を追加（EV-ORD-108。出荷ダイアログを開く）
     //**********************************************************************************
 *@
 
@@ -139,6 +140,7 @@
                 }
                 <th>合計金額</th>
                 <th>状況</th>
+                <th>操作</th>
             </tr>
         </thead>
         <tbody>
@@ -154,6 +156,7 @@
                     <td>@row.ShipperName</td>
                     <td>@row.TotalAmount.ToString("#,##0.00", inv)</td>
                     <td>@row.Status</td>
+                    <td><button type="button" class="btn btn-sm btn-outline-primary btn-ship" data-ship-url="@Url.Action("Ship", new { id = row.OrderID, from = "list" })">@(row.ShippedDate.HasValue ? "出荷変更" : "出荷更新")</button></td>
                 </tr>
             }
         </tbody>
@@ -175,4 +178,5 @@
 
 @* スクリプト・セクション（RenderSection("FooterScriptsSection", required: true)に出力されます） *@
 @section FooterScriptsSection{
+    <script src="~/js/app/ordtf-ship.js" asp-append-version="true"></script>
 }

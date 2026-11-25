@@ -5,7 +5,7 @@
 
     //**********************************************************************************
     //* クラス名        ：Ship
-    //* クラス日本語名  ：出荷ステータス更新ダイアログ（SC-ORD-04）
+    //* クラス日本語名  ：出荷ステータス更新ダイアログ（SC-ORD-04）。受注一覧・受注詳細の上に重ねて表示する部分ビュー
     //*
     //* 作成日時        ：2026/11/25
     //* 作成者          ：実装役
@@ -14,10 +14,102 @@
     //*  日時        更新者            内容
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/25  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
+    //*  2026/11/25  実装役            実装（段 4。EV-ORD-401〜403。ボタンはダイアログ下部に専用のメインボタン 5 つ＋閉じる＝決定 1）
     //**********************************************************************************
 *@
 
+@using WSIFType_sample
+@model MVC_Sample.Models.ViewModels.OrdTfShipViewModel
+
 @{
-    // 空の土台（要素なし）。Core のビューはビルドでコンパイルされるので、ビルドが通ることを確かめるために置く
+    // 部分ビュー：レイアウトは使わない。受注一覧・受注詳細の script（ordtf-ship.js）が #shipHost へ差し込む
     Layout = null;
+    string msgClass = string.IsNullOrEmpty(Model.Message) ? "" : "text-danger";
 }
+
+<div id="shipDialog" class="ship-overlay" role="dialog" aria-modal="true" aria-labelledby="shipTitle">
+    <style>
+        .ship-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.45); z-index: 2000;
+                        display: flex; align-items: center; justify-content: center; }
+        .ship-box { background: #fff; width: 95%; max-width: 760px; max-height: 92vh; overflow: auto; padding: 1rem; border-radius: 4px; }
+        .ship-box .ship-footer { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+        .ship-box .ship-footer .ship-close { margin-left: auto; }
+    </style>
+    <div class="ship-box">
+        <h5 id="shipTitle">出荷ステータス更新</h5>
+
+        @* 共通メッセージ領域（ダイアログに留まったときのエラー。項目単位の違反はここに出さない＝DEC-CMN-05） *@
+        <div id="shipMessage" class="@msgClass">@Model.Message</div>
+
+        <form id="shipForm" method="post" onsubmit="return false;"
+              data-save-url="@Url.Action("ShipSave")" data-cancel-url="@Url.Action("ShipCancel")"
+              data-back-url="@Url.Action("Back")" data-detail-url="@Url.Action("Detail", new { id = Model.OrderID })">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@Model.OrderID" />
+            <input type="hidden" name="rowVersion" value="@Model.RowVersion" />
+            <input type="hidden" name="from" value="@Model.From" />
+            <input type="hidden" name="displayedShipped" value="@(Model.Shipped ? "true" : "false")" />
+
+            @* 表示項目（SC-ORD-04-I01〜I04） *@
+            <table class="table table-sm table-bordered">
+                <tr><th>受注 ID</th><td id="shipOrderId">@Model.OrderID</td><th>現在の状況</th><td id="shipStatus">@Model.Status</td></tr>
+                <tr><th>顧客名</th><td id="shipCustomerName">@Model.CustomerName</td><th>要求納期</th><td id="shipRequiredDate">@Model.RequiredDate</td></tr>
+            </table>
+
+            @* 入力項目（SC-ORD-04-I05〜I07） *@
+            <div class="row">
+                <div class="form-group col-4">
+                    <label for="shipShippedDate">出荷日＊</label>
+                    <input type="text" id="shipShippedDate" name="shippedDate" class="form-control" placeholder="yyyy/MM/dd" value="@Model.ShippedDate" />
+                    <span id="shipShippedDateError" class="text-danger">@Model.ErrorShippedDate</span>
+                </div>
+                <div class="form-group col-4">
+                    <label for="shipShipVia">配送業者＊</label>
+                    <select id="shipShipVia" name="shipVia" class="form-control">
+                        @foreach (OrdTfOption o in Model.ShipperOptions)
+                        {
+                            <option value="@o.Value" selected="@(o.Value == Model.ShipVia)">@o.Text</option>
+                        }
+                    </select>
+                    <span id="shipShipViaError" class="text-danger">@Model.ErrorShipVia</span>
+                </div>
+                <div class="form-group col-4">
+                    <label for="shipFreight">送料</label>
+                    <input type="text" id="shipFreight" name="freight" class="form-control" value="@Model.Freight" />
+                    <span id="shipFreightError" class="text-danger">@Model.ErrorFreight</span>
+                </div>
+            </div>
+        </form>
+
+        @* 在庫引落の内訳（SC-ORD-04-I08。未出荷のときだけ。在庫が足りない行は強調する） *@
+        @if (!Model.Shipped)
+        {
+            <table id="shipStockList" class="table table-sm table-bordered">
+                <thead>
+                    <tr><th>商品名</th><th>数量</th><th>現在庫数</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (OrdTfShipStockLine line in Model.StockLines)
+                    {
+                        <tr class="@(line.Short ? "table-danger" : "")">
+                            <td class="ship-product">@line.ProductName</td>
+                            <td class="ship-qty">@line.Quantity</td>
+                            <td class="ship-stock">@(line.UnitsInStock.HasValue ? line.UnitsInStock.Value.ToString() : "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @* ダイアログ下部のボタン（決定 1：専用のメインボタン 5 つ＋メインボタンでない「閉じる」）。押下は ordtf-ship.js が受ける *@
+        <div class="ship-footer">
+            <button type="button" id="shipMain1" class="btn btn-primary">@(Model.Shipped ? "出荷情報を更新" : "出荷確定")</button>
+            <button type="button" id="shipMain2" class="btn btn-danger" disabled="@(!Model.Shipped)">出荷取消</button>
+            @for (int i = 3; i <= 5; i++)
+            {
+                <button type="button" id="@("shipMain" + i)" class="btn btn-secondary" disabled="disabled"></button>
+            }
+            <button type="button" id="btnShipClose" class="btn btn-secondary ship-close">閉じる</button>
+        </div>
+    </div>
+</div>
