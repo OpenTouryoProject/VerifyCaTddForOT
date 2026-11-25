@@ -13,6 +13,7 @@
 範囲外（作らない）：`EV-ORD-103`（条件クリア）・詳細への遷移・新規登録・出荷更新（`EV-ORD-106`〜`108`）、
 他の画面から戻ったときの一覧状態の復元（画面遷移 F-2。詳細の画面が無いため）。範囲外の項目・ボタンは置かない。
 `EV-ORD-106`・`107` と F-2 の復元は、[受注詳細（OrdTfDetail）](./test3-testfirst-OrdTfDetail.md)で作る（OpenTouryoProject/OpenTouryoCodingAgentAssets#22）。
+`EV-ORD-108` は、[出荷ステータス更新ダイアログ（OrdTfShip）](./test3-testfirst-OrdTfShip.md)で作る（#22 の 3 回目）。
 
 ## 名前（固定）
 ProgramID は **`OrdTf`**（テスト先行。トランザクション2 の `Ord` と衝突させない）。
