@@ -23,6 +23,7 @@
 //*  2026/11/25  実装役            実装（Green）：EV-ORD-401〜403（出荷ダイアログの表示・確定・取消。DB の ShippedDate を正とする＝DEC-ORD-60。在庫は加減算＋行バージョン＝DEC-ORD-59）
 //*  2026/11/25  実装役            読み込み時から存在する行は DB で決める（OriginalProductID を信じない。DEC-ORD-49）。削除の印と残す行の食い違い（ORD-T5）
 //*  2026/11/26  実装役            EV-ORD-501（OrdTfReport）の空の UOC（テスト先行の Red 用）
+//*  2026/11/26  実装役            実装（Green）：EV-ORD-501 の帳票の読み込み。明細の読み込みを FillLines に切り出して受注詳細と共用（振る舞いは変えない）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -301,32 +302,8 @@ namespace WSServer_sample.Business
             rv.Status = JudgeStatus(rv.RequiredDate, rv.ShippedDate, DateTime.Today);   // 手順 5
             rv.CanEdit = !rv.ShippedDate.HasValue;                              // 手順 8（ORD-T4）
 
-            // 2. 明細（商品名の昇順。Products は内部結合＝商品マスタに無い明細は含めない。DEC-ORD-24）
-            dao = new CmnDao(this.GetDam());
-            dao.SQLFileName = "OrdTfDetailLines.sql";
-            dao.SetParameter("OrderID", pv.OrderID);
-            DataTable dtLines = new DataTable();
-            dao.ExecSelectFill_DT(dtLines);
-
-            decimal subtotal = 0m;
-            foreach (DataRow dr in dtLines.Rows)
-            {
-                OrdTfDetailLine line = new OrdTfDetailLine();
-                line.ProductName = ToText(dr["ProductName"]) + (Convert.ToBoolean(dr["Discontinued"]) ? DiscontinuedMark : "");   // 手順 6
-                line.UnitPrice = Convert.ToDecimal(dr["UnitPrice"]);
-                line.Discount = Convert.ToDecimal(dr["Discount"]);   // real は SQL 側で 10 進数へ変換済み
-                line.Price = line.UnitPrice * (1m - line.Discount);   // 丸めない
-                line.Quantity = Convert.ToInt32(dr["Quantity"]);
-                line.UnitsInStock = dr["UnitsInStock"] == DBNull.Value ? (int?)null : Convert.ToInt32(dr["UnitsInStock"]);
-                // 明細金額は、価格に数量を掛けた後で小数第 3 位を四捨五入する（共通仕様 3 節）
-                line.Amount = Math.Round(line.Price * line.Quantity, 2, MidpointRounding.AwayFromZero);
-                subtotal += line.Amount;
-                rv.Lines.Add(line);
-            }
-
-            // 3. 小計・合計（明細が無ければ小計 0＝DEC-CMN-02、送料 NULL は 0＝DEC-CMN-03）
-            rv.Subtotal = subtotal;
-            rv.Total = subtotal + (rv.Freight ?? 0m);
+            // 2・3. 明細（商品名の昇順。廃番は付記する＝手順 6）と小計・合計
+            this.FillLines(rv, pv.OrderID, true);
 
             // ↑業務処理-----------------------------------------------------
         }
@@ -897,7 +874,7 @@ namespace WSServer_sample.Business
             // ↑業務処理-----------------------------------------------------
         }
 
-        /// <summary>受注帳票プレビューの読み込み（EV-ORD-501。Red 用の空の UOC：戻り値を設定するだけ）</summary>
+        /// <summary>受注帳票プレビューの読み込み（EV-ORD-501）。読むだけ（手順 8：保存・ファイル出力・非同期処理は行わない）</summary>
         /// <param name="pv">引数クラス</param>
         private void UOC_OrdTfReport(OrdTfParameterValue pv)
         {
@@ -907,7 +884,43 @@ namespace WSServer_sample.Business
 
             // ↓業務処理-----------------------------------------------------
 
-            // （段 4 で実装する）
+            // 1・2. 受注 1 件（担当者・配送業者は外部結合）。0 件は ERR-NOTFOUND（手順 1・2。受注 ID で読み直す）
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDetailHeader.sql";
+            dao.SetParameter("OrderID", pv.OrderID);
+            DataTable dtHeader = new DataTable();
+            dao.ExecSelectFill_DT(dtHeader);
+            if (dtHeader.Rows.Count == 0)
+            {
+                throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
+            }
+            DataRow h = dtHeader.Rows[0];
+
+            rv.OrderID = Convert.ToInt32(h["OrderID"]);
+            rv.EmployeeName = (h["LastName"] == DBNull.Value && h["FirstName"] == DBNull.Value)
+                ? "" : ToText(h["LastName"]) + " " + ToText(h["FirstName"]);   // EMP-T1
+            rv.OrderDate = ToDate(h["OrderDate"]);
+            rv.ShippedDate = ToDate(h["ShippedDate"]);
+            rv.ShipperName = ToText(h["ShipperName"]);
+            rv.ShipName = ToText(h["ShipName"]);
+            rv.ShipAddress = ToText(h["ShipAddress"]);
+            rv.ShipCity = ToText(h["ShipCity"]);
+            rv.ShipRegion = ToText(h["ShipRegion"]);
+            rv.ShipPostalCode = ToText(h["ShipPostalCode"]);
+            rv.ShipCountry = ToText(h["ShipCountry"]);
+            rv.Freight = h["Freight"] == DBNull.Value ? (decimal?)null : Convert.ToDecimal(h["Freight"]);
+
+            // 6. 宛先は出荷先情報（顧客マスタの住所は使わない）。空の要素を詰めて連結する（DEC-ORD-65）
+            rv.ShipToText = JoinAddress(h["ShipName"], h["ShipAddress"], h["ShipCity"], h["ShipRegion"],
+                h["ShipPostalCode"], h["ShipCountry"]);
+
+            // 3・4. 明細（商品名の昇順）と小計・合計。廃番は付記しない（DEC-ORD-67）
+            this.FillLines(rv, pv.OrderID, false);
+
+            // 5. 発行日（null は当日）と支払期限（発行日の翌月の末日。帳票種別によらず返す）
+            DateTime issue = (pv.IssueDate ?? DateTime.Today).Date;
+            rv.IssueDate = issue;
+            rv.DueDate = new DateTime(issue.Year, issue.Month, 1).AddMonths(2).AddDays(-1);
 
             // ↑業務処理-----------------------------------------------------
         }
@@ -992,6 +1005,40 @@ namespace WSServer_sample.Business
 
             // 出荷済：出荷日 > 要求納期なら納期遅延
             return (required.HasValue && shipped.Value > required.Value) ? "納期遅延" : "出荷済";
+        }
+
+        /// <summary>明細（商品名の昇順。Products は内部結合＝商品マスタに無い明細は含めない。DEC-ORD-24・DEC-ORD-66）を読み、小計・合計を求める（受注詳細・帳票で共用）</summary>
+        /// <param name="rv">戻り値クラス（Freight を設定済みであること。Lines・Subtotal・Total を設定する）</param>
+        /// <param name="orderId">受注 ID</param>
+        /// <param name="markDiscontinued">廃番商品の商品名に「（廃番）」を付記するか（受注詳細は true、帳票は false＝DEC-ORD-67）</param>
+        private void FillLines(OrdTfReturnValue rv, int orderId, bool markDiscontinued)
+        {
+            // 明細（商品名の昇順）
+            CmnDao dao = new CmnDao(this.GetDam());
+            dao.SQLFileName = "OrdTfDetailLines.sql";
+            dao.SetParameter("OrderID", orderId);
+            DataTable dtLines = new DataTable();
+            dao.ExecSelectFill_DT(dtLines);
+
+            decimal subtotal = 0m;
+            foreach (DataRow dr in dtLines.Rows)
+            {
+                OrdTfDetailLine line = new OrdTfDetailLine();
+                line.ProductName = ToText(dr["ProductName"]) + (markDiscontinued && Convert.ToBoolean(dr["Discontinued"]) ? DiscontinuedMark : "");   // 手順 6
+                line.UnitPrice = Convert.ToDecimal(dr["UnitPrice"]);
+                line.Discount = Convert.ToDecimal(dr["Discount"]);   // real は SQL 側で 10 進数へ変換済み
+                line.Price = line.UnitPrice * (1m - line.Discount);   // 丸めない
+                line.Quantity = Convert.ToInt32(dr["Quantity"]);
+                line.UnitsInStock = dr["UnitsInStock"] == DBNull.Value ? (int?)null : Convert.ToInt32(dr["UnitsInStock"]);
+                // 明細金額は、価格に数量を掛けた後で小数第 3 位を四捨五入する（共通仕様 3 節）
+                line.Amount = Math.Round(line.Price * line.Quantity, 2, MidpointRounding.AwayFromZero);
+                subtotal += line.Amount;
+                rv.Lines.Add(line);
+            }
+
+            // 3. 小計・合計（明細が無ければ小計 0＝DEC-CMN-02、送料 NULL は 0＝DEC-CMN-03）
+            rv.Subtotal = subtotal;
+            rv.Total = subtotal + (rv.Freight ?? 0m);
         }
 
         /// <summary>顧客住所：Address・City・Region・PostalCode・Country の空（NULL・空白だけ）の要素を詰めて連結（SC-ORD-02-I05）</summary>

@@ -17,6 +17,7 @@
     //*  2026/11/24  実装役            実装（段 4。EV-ORD-201・203。メインボタンは削除だけ。決定 4）
     //*  2026/11/24  実装役            編集（B01）を EditStart へ（EV-ORD-202）
     //*  2026/11/25  実装役            出荷更新（B03）を追加（EV-ORD-205。出荷ダイアログを開く）
+    //*  2026/11/26  実装役            納品書（B04）・請求書（B05）を追加（EV-ORD-204。帳票プレビューへ遷移）
     //**********************************************************************************
 *@
 
@@ -70,6 +71,9 @@
             onclick="location.href='@Url.Content("~/OrdTf/EditStart?id=" + d.OrderID)'">編集</button>
     @* 出荷更新（B03。画面上部。常時活性。出荷ダイアログを元画面の上に重ねて開く。EV-ORD-205） *@
     <button type="button" id="btnShip" class="btn btn-primary" data-ship-url="@Url.Action("Ship", new { id = d.OrderID, from = "detail" })">出荷更新</button>
+    @* 納品書（B04）・請求書（B05）（画面上部。常時活性。帳票プレビューへ受注 ID と帳票種別を渡して遷移する。EV-ORD-204） *@
+    <a id="btnDelivery" class="btn btn-primary" href="@Url.Content("~/OrdTf/Report?id=" + d.OrderID + "&type=delivery")">納品書</a>
+    <a id="btnInvoice" class="btn btn-primary" href="@Url.Content("~/OrdTf/Report?id=" + d.OrderID + "&type=invoice")">請求書</a>
 </div>
 
 @* 受注情報（SC-ORD-02-I01〜I10） *@

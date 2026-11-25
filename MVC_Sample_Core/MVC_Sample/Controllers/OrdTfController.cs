@@ -21,6 +21,7 @@
 //*  2026/11/24  実装役            実装（段 4。EV-ORD-202・301〜309：Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing。保存は PRG）
 //*  2026/11/25  実装役            出荷ダイアログ（EV-ORD-401〜404。Ship・ShipSave・ShipCancel。ダイアログの中身は部分ビュー、結果は JSON の redirect）
 //*  2026/11/26  実装役            Red 用の空の土台（Report。段 2。EV-ORD-501 は段 4 で実装する）
+//*  2026/11/26  実装役            実装（段 4。EV-ORD-501：Report。受注 ID で B層が読み直す。一覧状態は書き換えない）
 //**********************************************************************************
 
 using WSIFType_sample;
@@ -426,18 +427,36 @@ namespace MVC_Sample.Controllers
             return this.Display(model);
         }
 
+        #region 受注帳票プレビュー（Report）
+
+        /// <summary>帳票種別：納品書</summary>
+        private const string ReportDelivery = "delivery";
+
+        /// <summary>帳票種別：請求書</summary>
+        private const string ReportInvoice = "invoice";
+
         /// <summary>
-        /// 受注帳票プレビューの表示（EV-ORD-501）。Red 用の空の土台（要素なし。段 4 で実装する）
+        /// 受注帳票プレビューの表示（EV-ORD-501）。読むだけ（保存・ファイル出力・非同期処理は行わない）。
+        /// 受け取るのは受注 ID と帳票種別だけで、B層が受注 ID で読み直す（画面から送られた値で業務の検証を外させない）
         /// GET: /OrdTf/Report?id=&amp;type=
         /// </summary>
         /// <param name="id">受注 ID</param>
-        /// <param name="type">帳票種別（delivery｜invoice）</param>
-        /// <returns>画面（IActionResult）</returns>
+        /// <param name="type">帳票種別（delivery｜invoice。それ以外は納品書として扱う。DEC-ORD-71：定めない）</param>
+        /// <returns>画面（IActionResult）。受注が無ければ一覧へ戻る（ERR-NOTFOUND。保持された一覧状態で戻る＝DEC-ORD-70）</returns>
         [HttpGet]
-        public IActionResult Report(int id, string type)
+        public async Task<IActionResult> Report(int id, string type)
         {
-            return View();
+            OrdTfParameterValue pv = new OrdTfParameterValue(this.ControllerName, "-", "OrdTfReport", "SQL", this.UserInfo);
+            pv.OrderID = id;
+            OrdTfReturnValue rv = (OrdTfReturnValue)await new OrdTfBusiness().DoBusinessLogicAsync(pv, Iso);
+            if (rv.ErrorFlag)
+            {
+                return this.BackWithMessage(rv.ErrorMessage, true);
+            }
+            return View(new OrdTfReportViewModel { Data = rv, Type = (type == ReportInvoice) ? ReportInvoice : ReportDelivery });
         }
+
+        #endregion
 
         #region 受注詳細（登録・編集。Edit・Save・EditStart・CustomerInfo・ProductInfo・Missing）
 

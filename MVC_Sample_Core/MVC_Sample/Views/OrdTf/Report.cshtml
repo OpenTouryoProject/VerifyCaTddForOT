@@ -14,20 +14,109 @@
     //*  日時        更新者            内容
     //*  ----------  ----------------  -------------------------------------------------
     //*  2026/11/26  実装役            Red 用の空の土台（段 2。画面の要素は段 4 で実装する）
+    //*  2026/11/26  実装役            実装（段 4。EV-ORD-501〜504。種別の切替は script・印刷の除外は @media print）
     //**********************************************************************************
 *@
+
+@using System.Globalization
+@using MVC_Sample.Models.ViewModels
+@using WSIFType_sample
+@model OrdTfReportViewModel
 
 @{
     // ページタイトル
     ViewBag.Title = "受注帳票プレビュー";
+    CultureInfo inv = CultureInfo.InvariantCulture;
+    OrdTfReturnValue d = Model.Data;
+    bool invoice = Model.Type == "invoice";
+
+    // 表示の書式（共通仕様 3・4 節）：日付 yyyy/MM/dd、金額は千区切り＋小数 2 桁（小数第 3 位を四捨五入）、NULL は空
+    string Date(DateTime? v) { return v.HasValue ? v.Value.ToString("yyyy/MM/dd", inv) : ""; }
+    string Money(decimal? v) { return v.HasValue ? Math.Round(v.Value, 2, MidpointRounding.AwayFromZero).ToString("#,##0.00", inv) : ""; }
+    // 割引率は百分率（0.15 → 15%。端数があれば小数で 12.5%。DEC-ORD-68）
+    string Percent(decimal v) { return (v * 100m).ToString("0.##", inv) + "%"; }
 }
 
 @* スクリプト・セクション（RenderSection("HeaderScriptsSection", required: true)に出力されます） *@
 @section HeaderScriptsSection{
+    @* 印刷の対象から除く（EV-ORD-503 手順 1・DEC-ORD-64）。共通のレイアウト・共通の CSS は変えず、この画面の中に置く *@
+    <style>
+        @@media print {
+            #reportType, #btnPrint, #btnBack, .page-header, .nav-side-menu, #footer-buttons { display: none !important; }
+        }
+    </style>
 }
 
-@* 本文レイアウト（RenderBodyに出力されます） *@
+@* フッタ部のメインボタン（5 つ）。この画面は機能トランザクションを起動するボタンが無い（印刷は window.print を呼ぶだけ、戻るは遷移だけ）ので、
+   すべて非活性（キャプションなし）。印刷（B01）・戻る（B02）はメインボタンに含めず、画面定義書の配置（画面上部）に置く（決定 1） *@
+@section FooterButtonsSection{
+    @for (int i = 1; i <= 5; i++)
+    {
+        <button type="button" id="@("btnMain" + i)" class="btn btn-secondary" disabled="disabled"></button>
+    }
+}
+
+@* 共通メッセージ領域（正常な表示では空） *@
+<div id="messageArea"></div>
+
+@* 帳票種別（I01）・印刷（B01）・戻る（B02）。画面上部。印刷時は非表示 *@
+<div class="mb-3">
+    <select id="reportType" class="form-select d-inline-block w-auto">
+        <option value="delivery" selected="@(!invoice)">納品書</option>
+        <option value="invoice" selected="@invoice">請求書</option>
+    </select>
+    <button type="button" id="btnPrint" class="btn btn-primary" onclick="window.print();">印刷</button>
+    <a id="btnBack" class="btn btn-secondary" href="@Url.Content("~/OrdTf/Detail?id=" + d.OrderID)">戻る</a>
+</div>
+
+@* 帳票（印刷の対象） *@
+<div id="reportBody">
+    <h2 id="reportTitle">@(invoice ? "請求書" : "納品書")</h2>
+    <table class="table table-sm table-borderless w-auto">
+        <tr><th>発行日</th><td id="issueDate">@Date(d.IssueDate)</td></tr>
+        <tr><th>受注 ID</th><td id="orderId">@d.OrderID</td></tr>
+        <tr><th>宛先</th><td id="shipTo">@d.ShipToText</td></tr>
+        <tr><th>受注日</th><td id="orderDate">@Date(d.OrderDate)</td></tr>
+        <tr id="rowShippedDate" class="@(invoice ? "d-none" : "")"><th>出荷日</th><td id="shippedDate">@Date(d.ShippedDate)</td></tr>
+        <tr id="rowShipper" class="@(invoice ? "d-none" : "")"><th>配送業者</th><td id="shipperName">@d.ShipperName</td></tr>
+        <tr><th>担当者名</th><td id="employeeName">@d.EmployeeName</td></tr>
+        <tr id="rowDueDate" class="@(invoice ? "" : "d-none")"><th>支払期限</th><td id="dueDate">@Date(d.DueDate)</td></tr>
+    </table>
+
+    @* 明細（SC-ORD-05-I10）。一覧は table を自前で生成し、tr をループする *@
+    <table id="reportLines" class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th>商品名</th>
+                <th>単価</th>
+                <th>割引率</th>
+                <th>価格</th>
+                <th>数量</th>
+                <th>明細金額</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (OrdTfDetailLine line in d.Lines)
+            {
+                <tr>
+                    <td>@line.ProductName</td>
+                    <td>@Money(line.UnitPrice)</td>
+                    <td>@Percent(line.Discount)</td>
+                    <td>@Money(line.Price)</td>
+                    <td>@line.Quantity</td>
+                    <td>@Money(line.Amount)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered w-auto">
+        <tr><th>小計</th><td id="subtotal" class="text-end">@Money(d.Subtotal)</td></tr>
+        <tr><th>送料</th><td id="freight" class="text-end">@Money(d.Freight)</td></tr>
+        <tr><th>合計</th><td id="total" class="text-end">@Money(d.Total)</td></tr>
+    </table>
+</div>
 
 @* スクリプト・セクション（RenderSection("FooterScriptsSection", required: true)に出力されます） *@
 @section FooterScriptsSection{
+    <script src="~/js/app/ordtf-report.js" asp-append-version="true"></script>
 }
