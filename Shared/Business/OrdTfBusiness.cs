@@ -19,6 +19,7 @@
 //*  2026/11/24  実装役            実装（Green）：EV-ORD-201 の詳細の読み込み、EV-ORD-203 の削除（明細 → 受注。業務例外でロールバック）
 //*  2026/11/24  実装役            EV-ORD-301〜308（OrdTfEditInit・OrdTfCustomer・OrdTfProduct・OrdTfSave）の空の UOC（テスト先行の Red 用）
 //*  2026/11/24  実装役            実装（Green）：EV-ORD-301〜308（選択肢・編集の読み込み・顧客・商品・保存。保存は 1 トランザクション）
+//*  2026/11/25  実装役            EV-ORD-401〜403（OrdTfShipInit・OrdTfShipSave・OrdTfShipCancel）の空の UOC（テスト先行の Red 用）
 //*  2026/11/25  実装役            読み込み時から存在する行は DB で決める（OriginalProductID を信じない。DEC-ORD-49）。削除の印と残す行の食い違い（ORD-T5）
 //**********************************************************************************
 
@@ -342,6 +343,45 @@ namespace WSServer_sample.Business
                 throw new BusinessApplicationException(MsgIdNotFound, MsgNotFound, "");
             }
 
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>出荷ダイアログの表示（初期化。EV-ORD-401）。Red の足場：戻り値を設定するだけ</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfShipInit(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+            // （段 4 で実装する）
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>出荷の確定・情報更新（EV-ORD-402）。Red の足場：戻り値を設定するだけ</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfShipSave(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+            // （段 4 で実装する）
+            // ↑業務処理-----------------------------------------------------
+        }
+
+        /// <summary>出荷の取消（EV-ORD-403）。Red の足場：戻り値を設定するだけ</summary>
+        /// <param name="pv">引数クラス</param>
+        private void UOC_OrdTfShipCancel(OrdTfParameterValue pv)
+        {
+            // 戻り値クラスを生成して、事前に戻り値に設定しておく。
+            OrdTfReturnValue rv = new OrdTfReturnValue();
+            this.ReturnValue = rv;
+
+            // ↓業務処理-----------------------------------------------------
+            // （段 4 で実装する）
             // ↑業務処理-----------------------------------------------------
         }
 

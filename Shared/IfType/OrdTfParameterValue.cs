@@ -16,6 +16,7 @@
 //*  2026/11/15  実装役            並べ替えのメンバ（SortColumn・SortDescending）を追加（EV-ORD-105。Red の足場）
 //*  2026/11/24  実装役            受注詳細・削除のメンバ（OrderID・RowVersion）を追加（EV-ORD-201・203。Red の足場）
 //*  2026/11/24  実装役            受注詳細（登録・編集）のメンバ（EV-ORD-301〜308。Red の足場）
+//*  2026/11/25  実装役            出荷ステータス更新ダイアログのメンバ（EV-ORD-401〜403。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -109,6 +110,16 @@ namespace WSIFType_sample
 
         /// <summary>削除対象として印を付けた、読み込み時の明細行の商品 ID（OrdTfSave・編集）</summary>
         public List<int> DeletedProductIDs = new List<int>();
+
+        #endregion
+
+        #region 出荷ステータス更新ダイアログ（EV-ORD-401〜403。OrderID・RowVersion・ShipViaText・FreightText は既存を再利用）
+
+        /// <summary>出荷日（画面の入力のまま。yyyy/MM/dd。OrdTfShipSave）</summary>
+        public string ShippedDateText;
+
+        /// <summary>表示時点の出荷済（true）／未出荷（false）の別（OrdTfShipSave。DB の ShippedDate が正＝DEC-ORD-60）</summary>
+        public bool DisplayedShipped;
 
         #endregion
 

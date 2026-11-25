@@ -174,7 +174,7 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#pageInfo")).ToHaveTextAsync(new Regex(@"^1 / \d+ ページ$"));
             await Expect(Loc("#orderList thead th")).ToHaveTextAsync(new[]
             {
-                "受注 ID", "顧客名", "担当者名", "受注日", "要求納期", "出荷日", "配送業者", "合計金額", "状況",
+                "受注 ID", "顧客名", "担当者名", "受注日", "要求納期", "出荷日", "配送業者", "合計金額", "状況", "操作",
             });
         }
 

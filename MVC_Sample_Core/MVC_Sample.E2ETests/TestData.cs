@@ -337,6 +337,26 @@ namespace MVC_Sample.E2ETests
                 P("@d", SqlDbType.DateTime, DateTime.Today), P("@o", SqlDbType.Int, orderId));
         }
 
+        /// <summary>商品の在庫を DB から読む（NULL は null）</summary>
+        public static int? GetUnitsInStock(int productId)
+        {
+            object v = ExecScalar("SELECT UnitsInStock FROM Products WHERE ProductID = @p", P("@p", SqlDbType.Int, productId));
+            return (v == null || v is DBNull) ? (int?)null : Convert.ToInt32(v);
+        }
+
+        /// <summary>他の利用者が在庫を変えたことを模す（UnitsInStock だけを更新する。RowVersion は変えない）</summary>
+        public static void SetUnitsInStock(int productId, int? value)
+        {
+            ExecScalar("UPDATE Products SET UnitsInStock = @s WHERE ProductID = @p",
+                P("@s", SqlDbType.SmallInt, value), P("@p", SqlDbType.Int, productId));
+        }
+
+        /// <summary>商品の行バージョンを読む</summary>
+        public static int GetProductRowVersion(int productId)
+        {
+            return Convert.ToInt32(ExecScalar("SELECT RowVersion FROM Products WHERE ProductID = @p", P("@p", SqlDbType.Int, productId)));
+        }
+
         /// <summary>顧客で受注を数える</summary>
         public static int CountOrdersOfCustomer(string customerId)
         {

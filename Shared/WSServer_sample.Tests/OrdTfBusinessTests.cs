@@ -3114,5 +3114,1124 @@ namespace WSServer_sample.Tests
             Assert.That(d2.Quantity, Is.EqualTo(12));
             Assert.That(d2.RowVersion, Is.EqualTo(1));
         }
+
+        // ================================================================ 出荷ステータス更新ダイアログ（OrdTfShip。EV-ORD-401〜403）
+        // 仕様：docs/spec/test3-testfirst-OrdTfShip-mvc-core-tests.md（NorthwindDbSampleSpec@2962688）の 3 章。
+
+        private const string MsgShort = "在庫が不足しています：";
+        private const string MsgNotShipped = "この受注は出荷されていません。";
+        private const string MsgShipDateBeforeOrder = "出荷日は受注日以降を指定してください。";
+
+        /// <summary>出荷の共通の前提（顧客 K・配送業者 S0・S1・商品 P1・P2）</summary>
+        private sealed class ShipCtx
+        {
+            public string K;
+            public int S0;
+            public int S1;
+            public int P1;
+            public int P2;
+            public string Mark;
+        }
+
+        private ShipCtx NewShipCtx(int p1Stock = 10, int p2Stock = 7)
+        {
+            ShipCtx c = new ShipCtx();
+            c.K = data.NewCustomer('K');
+            c.S0 = data.NewShipper(mark: 'A');
+            c.S1 = data.NewShipper(mark: 'B');
+            c.P1 = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: p1Stock);
+            c.P2 = data.NewProduct(mark: 'B', unitPrice: 20.00m, unitsInStock: p2Stock);
+            c.Mark = data.NewMark();
+            return c;
+        }
+
+        /// <summary>Sc（未出荷）／Sh（出荷済）の受注 o。受注日 2199/03/01・要求納期 2199/12/31・配送業者 S0・送料 5.00・Ship* に値。明細は P1 数量 3・P2 数量 2</summary>
+        private int NewShipOrder(ShipCtx c, bool shipped, decimal? freight = 5.00m)
+        {
+            int o = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31),
+                shippedDate: shipped ? D(2199, 3, 5) : (DateTime?)null, shipVia: c.S0, freight: freight,
+                shipName: c.Mark + "N", shipAddress: "SA", shipCity: "SC", shipRegion: "SR", shipPostalCode: "SP", shipCountry: "SY");
+            data.NewDetail(o, c.P1, 10.00m, 3, 0f);
+            data.NewDetail(o, c.P2, 20.00m, 2, 0f);
+            return o;
+        }
+
+        private static OrdTfReturnValue ShipInit(int o)
+        {
+            return Call("OrdTfShipInit", pv => pv.OrderID = o);
+        }
+
+        /// <summary>V（確定の有効な入力）：RowVersion = 1・DisplayedShipped = false・出荷日 2199/03/10・配送業者 S1・送料 12.50</summary>
+        private static void ValidShip(ShipCtx c, int o, OrdTfParameterValue pv)
+        {
+            pv.OrderID = o;
+            pv.RowVersion = 1;
+            pv.DisplayedShipped = false;
+            pv.ShippedDateText = "2199/03/10";
+            pv.ShipViaText = c.S1.ToString(Inv);
+            pv.FreightText = "12.50";
+        }
+
+        private static OrdTfReturnValue ShipSave(ShipCtx c, int o, Action<OrdTfParameterValue> change = null)
+        {
+            return Call("OrdTfShipSave", pv =>
+            {
+                ValidShip(c, o, pv);
+                if (change != null) change(pv);
+            });
+        }
+
+        private static OrdTfReturnValue ShipCancel(int o, int rowVersion)
+        {
+            return Call("OrdTfShipCancel", pv => { pv.OrderID = o; pv.RowVersion = rowVersion; });
+        }
+
+        /// <summary>受注 o と商品の状態（AssertUntouched 用）</summary>
+        private sealed class ShipSnap
+        {
+            public TestData.OrderRow Order;
+            public Dictionary<int, int?> Stock = new Dictionary<int, int?>();
+            public Dictionary<int, int> ProductRv = new Dictionary<int, int>();
+        }
+
+        private static ShipSnap Snap(int o, params int[] products)
+        {
+            ShipSnap s = new ShipSnap();
+            s.Order = TestData.GetOrder(o);
+            foreach (int p in products)
+            {
+                s.Stock[p] = TestData.GetUnitsInStock(p);
+                s.ProductRv[p] = TestData.GetProductRowVersion(p);
+            }
+            return s;
+        }
+
+        /// <summary>呼ぶ前と同じ（出荷日・配送業者・送料・行バージョン、商品の在庫と行バージョン）</summary>
+        private static void AssertUntouched(ShipSnap before, int o, params int[] products)
+        {
+            ShipSnap after = Snap(o, products);
+            Assert.That(after.Order.ShippedDate, Is.EqualTo(before.Order.ShippedDate), "ShippedDate");
+            Assert.That(after.Order.ShipVia, Is.EqualTo(before.Order.ShipVia), "ShipVia");
+            Assert.That(after.Order.Freight, Is.EqualTo(before.Order.Freight), "Freight");
+            Assert.That(after.Order.RowVersion, Is.EqualTo(before.Order.RowVersion), "Orders.RowVersion");
+            foreach (int p in products)
+            {
+                Assert.That(after.Stock[p], Is.EqualTo(before.Stock[p]), "在庫 " + p);
+                Assert.That(after.ProductRv[p], Is.EqualTo(before.ProductRv[p]), "Products.RowVersion " + p);
+            }
+        }
+
+        // ---------------------------------------------------------------- 3.1 OrdTfShipInit（EV-ORD-401）
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I01"), Basis("SC-ORD-04-I02"), Basis("SC-ORD-04-I03"), Basis("SC-ORD-04-I04")]
+        public void OrdTfShipInit_未出荷の受注情報()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.CustomerName, Is.EqualTo(data.CustomerNames[c.K]));
+            Assert.That(rv.Status, Is.EqualTo("未出荷"));
+            Assert.That(rv.RequiredDate, Is.EqualTo(D(2199, 12, 31)));
+            Assert.That(rv.ShipIsShipped, Is.False);
+        }
+
+        [TestCase("2001/01/01", null, "納期遅延")]
+        [TestCase("2199/12/31", null, "未出荷")]
+        [TestCase(null, null, "未出荷")]
+        [TestCase("2199/06/01", "2199/06/02", "納期遅延")]
+        [TestCase("2199/06/02", "2199/06/01", "出荷済")]
+        [TestCase("2199/06/01", "2199/06/01", "出荷済")]
+        [TestCase(null, "2001/01/01", "出荷済")]
+        [TestCase("T", null, "未出荷")]
+        [TestCase("T-1", null, "納期遅延")]
+        [Basis("EV-ORD-401"), Basis("状況の判定"), Basis("ORD-T7"), Basis("SC-ORD-04-I03")]
+        public void OrdTfShipInit_状況の判定(string required, string shipped, string expected)
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: Day(required), shippedDate: Day(shipped));
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.Status, Is.EqualTo(expected));
+            Assert.That(rv.ShipIsShipped, Is.EqualTo(shipped != null));
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("ORD-T1"), Basis("共通仕様 4 節（空値）")]
+        public void OrdTfShipInit_顧客が無い受注も表示できる()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31));
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.Status, Is.EqualTo("未出荷"));
+            Assert.That(rv.CustomerName, Is.Null.Or.Empty);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I05")]
+        public void OrdTfShipInit_未出荷の出荷日は当日()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.ShipDate, Is.EqualTo(DateTime.Today));
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I06"), Basis("SC-ORD-04-I07")]
+        public void OrdTfShipInit_未出荷の配送業者と送料は受注の値()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false, 12.50m);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.ShipViaID, Is.EqualTo(c.S0));
+            Assert.That(rv.Freight, Is.EqualTo(12.50m));
+        }
+
+        [Test, Basis("EV-ORD-401")]
+        public void OrdTfShipInit_未出荷で配送業者が未設定なら未選択()
+        {
+            int p = data.NewProduct(unitsInStock: 5);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31));
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.ShipIsShipped, Is.False);
+            Assert.That(rv.ShipViaID, Is.Null);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("共通仕様 4 節（NULL は空）")]
+        public void OrdTfShipInit_送料がNULLなら空()
+        {
+            int p = data.NewProduct(unitsInStock: 5);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31), freight: null);
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.ShipIsShipped, Is.False);
+            Assert.That(rv.Freight, Is.Null);
+        }
+
+        private static OrdTfShipStockLine StockLineOf(OrdTfReturnValue rv, string productName)
+        {
+            return rv.StockLines.Single(l => l.ProductName == productName);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I08")]
+        public void OrdTfShipInit_内訳の項目と強調()
+        {
+            ShipCtx c = NewShipCtx(10, 1);
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.StockLines.Count, Is.EqualTo(2));
+            OrdTfShipStockLine a = StockLineOf(rv, data.ProductNames[c.P1]);
+            OrdTfShipStockLine b = StockLineOf(rv, data.ProductNames[c.P2]);
+            Assert.That(a.Quantity, Is.EqualTo(3));
+            Assert.That(a.UnitsInStock, Is.EqualTo(10));
+            Assert.That(a.Short, Is.False);
+            Assert.That(b.Quantity, Is.EqualTo(2));
+            Assert.That(b.UnitsInStock, Is.EqualTo(1));
+            Assert.That(b.Short, Is.True);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I08")]
+        public void OrdTfShipInit_内訳の強調の境界()
+        {
+            int a = data.NewProduct(mark: 'A', unitsInStock: 3);
+            int b = data.NewProduct(mark: 'B', unitsInStock: 3);
+            int c = data.NewProduct(mark: 'C', unitsInStock: 3);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31));
+            data.NewDetail(o, a, 10.00m, 3, 0f);
+            data.NewDetail(o, b, 10.00m, 4, 0f);
+            data.NewDetail(o, c, 10.00m, 2, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.StockLines.Count, Is.EqualTo(3));
+            Assert.That(StockLineOf(rv, data.ProductNames[a]).Short, Is.False, "ちょうどは強調しない");
+            Assert.That(StockLineOf(rv, data.ProductNames[b]).Short, Is.True);
+            Assert.That(StockLineOf(rv, data.ProductNames[c]).Short, Is.False);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I08")]
+        public void OrdTfShipInit_内訳は当該受注の明細だけ()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            int r = data.NewProduct(mark: 'R', unitsInStock: 4);
+            int o2 = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1));
+            data.NewDetail(o2, r, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.StockLines.Count, Is.EqualTo(2));
+            Assert.That(rv.StockLines.Any(l => l.ProductName == data.ProductNames[r]), Is.False);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I08"), Basis("共通仕様 4 節（NULL は空）"), Basis("DEC-ORD-62")]
+        public void OrdTfShipInit_内訳の在庫がNULLなら空()
+        {
+            int p = data.NewProduct(mark: 'P', unitsInStock: null);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31));
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.StockLines.Count, Is.EqualTo(1));
+            Assert.That(rv.StockLines[0].UnitsInStock, Is.Null);
+        }
+
+        [Test, Basis("EV-ORD-401")]
+        public void OrdTfShipInit_商品マスタに無い明細は内訳に含めない()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            int z = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            data.NewDetail(o, z, 10.00m, 5, 0f);
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.StockLines.Count, Is.EqualTo(2));
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I05"), Basis("SC-ORD-04-I06"), Basis("SC-ORD-04-I07")]
+        public void OrdTfShipInit_出荷済の表示()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true, 7.25m);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.ShipIsShipped, Is.True);
+            Assert.That(rv.ShipDate, Is.EqualTo(D(2199, 3, 5)));
+            Assert.That(rv.ShipViaID, Is.EqualTo(c.S0));
+            Assert.That(rv.Freight, Is.EqualTo(7.25m));
+            Assert.That(rv.Status, Is.EqualTo("出荷済"));
+            Assert.That(rv.StockLines, Is.Empty);
+        }
+
+        [Test, Basis("EV-ORD-401")]
+        public void OrdTfShipInit_出荷済で配送業者が未設定なら未選択()
+        {
+            int p = data.NewProduct(unitsInStock: 5);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31), shippedDate: D(2199, 3, 5));
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            Assert.That(rv.ShipIsShipped, Is.True);
+            Assert.That(rv.ShipViaID, Is.Null);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("選択肢の構築"), Basis("SC-ORD-04-I06")]
+        public void OrdTfShipInit_配送業者の選択肢()
+        {
+            // ShipperID の昇順と会社名の昇順が逆：s1 は ID が小さく会社名が大きい
+            int s1 = data.NewShipper(mark: 'Z');
+            int s2 = data.NewShipper(mark: 'A');
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31));
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            List<OrdTfOption> opts = rv.ShipperOptions;
+            Assert.That(opts.Count, Is.GreaterThan(0));
+            Assert.That(opts[0].Value, Is.EqualTo(""));
+            Assert.That(opts[0].Text, Is.EqualTo(""));
+            Assert.That(opts.Count(x => x.Value == ""), Is.EqualTo(1));
+            int i1 = opts.FindIndex(x => x.Value == s1.ToString(Inv));
+            int i2 = opts.FindIndex(x => x.Value == s2.ToString(Inv));
+            Assert.That(i1, Is.GreaterThanOrEqualTo(0));
+            Assert.That(i2, Is.GreaterThanOrEqualTo(0));
+            Assert.That(opts[i1].Text, Is.EqualTo(data.ShipperNames[s1]));
+            Assert.That(opts[i2].Text, Is.EqualTo(data.ShipperNames[s2]));
+            Assert.That(i2, Is.LessThan(i1), "会社名の昇順（s2 が s1 より前）");
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("共通仕様 9.1")]
+        public void OrdTfShipInit_行バージョン()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue before = ShipInit(o);
+            TestData.BumpOrder(o, 99m);
+            OrdTfReturnValue after = ShipInit(o);
+
+            Assert.That(before.RowVersion, Is.EqualTo(1));
+            Assert.That(after.RowVersion, Is.EqualTo(2));
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("ERR-NOTFOUND")]
+        public void OrdTfShipInit_存在しない受注()
+        {
+            int o = data.NewOrder(orderDate: D(2199, 3, 1));
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotFound));
+        }
+
+        // ---------------------------------------------------------------- 3.2 OrdTfShipSave（EV-ORD-402）
+
+        [Test, Basis("EV-ORD-402"), Basis("ORD-T2")]
+        public void OrdTfShipSave_確定で出荷情報が更新される()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(row.ShipVia, Is.EqualTo(c.S1));
+            Assert.That(row.Freight, Is.EqualTo(12.50m));
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(row.CustomerID, Is.EqualTo(c.K));
+            Assert.That(row.OrderDate, Is.EqualTo(D(2199, 3, 1)));
+            Assert.That(row.RequiredDate, Is.EqualTo(D(2199, 12, 31)));
+            Assert.That(row.ShipName, Is.EqualTo(c.Mark + "N"));
+            Assert.That(row.ShipAddress, Is.EqualTo("SA"));
+            Assert.That(row.ShipCity, Is.EqualTo("SC"));
+            Assert.That(row.ShipRegion, Is.EqualTo("SR"));
+            Assert.That(row.ShipPostalCode, Is.EqualTo("SP"));
+            Assert.That(row.ShipCountry, Is.EqualTo("SY"));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("OD-T5"), Basis("PRD-T5")]
+        public void OrdTfShipSave_確定で在庫が引き落とされる()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("PRD-T5")]
+        public void OrdTfShipSave_在庫がちょうど0になる()
+        {
+            ShipCtx c = NewShipCtx(3, 2);
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(0));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(0));
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("PRD-T5"), Basis("ERR-BIZ")]
+        public void OrdTfShipSave_在庫が1足りない()
+        {
+            ShipCtx c = NewShipCtx(2, 7);
+            int o = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31), shipVia: c.S0);
+            data.NewDetail(o, c.P1, 10.00m, 3, 0f);
+            ShipSnap before = Snap(o, c.P1);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgShort + data.ProductNames[c.P1]));
+            AssertUntouched(before, o, c.P1);
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("共通仕様 7 節（ロールバック）")]
+        public void OrdTfShipSave_在庫不足は何も更新しない()
+        {
+            ShipCtx c = NewShipCtx(10, 1);
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgShort + data.ProductNames[c.P2]));
+            Assert.That(rv.ErrorMessage, Does.Not.Contain(data.ProductNames[c.P1]));
+            AssertUntouched(before, o, c.P1, c.P2);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10), "足りる商品も引かない");
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("DEC-ORD-61")]
+        public void OrdTfShipSave_在庫が不足する商品が複数なら全商品名を列挙する()
+        {
+            ShipCtx c = NewShipCtx(1, 0);
+            int p3 = data.NewProduct(mark: 'C', unitsInStock: 9);
+            int o = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31), shipVia: c.S0);
+            data.NewDetail(o, c.P1, 10.00m, 2, 0f);
+            data.NewDetail(o, c.P2, 10.00m, 1, 0f);
+            data.NewDetail(o, p3, 10.00m, 1, 0f);
+            ShipSnap before = Snap(o, c.P1, c.P2, p3);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Does.StartWith(MsgShort));
+            Assert.That(rv.ErrorMessage, Does.Contain(data.ProductNames[c.P1]));
+            Assert.That(rv.ErrorMessage, Does.Contain(data.ProductNames[c.P2]));
+            Assert.That(rv.ErrorMessage, Does.Not.Contain(data.ProductNames[p3]));
+            AssertUntouched(before, o, c.P1, c.P2, p3);
+        }
+
+        [Test, Basis("EV-ORD-402")]
+        public void OrdTfShipSave_確定でほかの受注と商品に触れない()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            int o2 = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1), freight: 1.00m);
+            data.NewDetail(o2, c.P1, 10.00m, 1, 0f);
+            TestData.BumpOrder(o2, 1.00m);
+            int r = data.NewProduct(mark: 'R', unitsInStock: 4);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            TestData.OrderRow row2 = TestData.GetOrder(o2);
+            Assert.That(row2.ShippedDate, Is.Null);
+            Assert.That(row2.RowVersion, Is.EqualTo(2));
+            Assert.That(row2.Freight, Is.EqualTo(1.00m));
+            Assert.That(TestData.GetDetails(o2).Count, Is.EqualTo(1));
+            Assert.That(TestData.GetUnitsInStock(r), Is.EqualTo(4));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7), "o2 の数量を引かない");
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("DEC-ORD-24")]
+        public void OrdTfShipSave_商品マスタに無い明細があっても確定できる()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            int z = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            data.NewDetail(o, z, 10.00m, 5, 0f);
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("DEC-ORD-01")]
+        public void OrdTfShipSave_確定で送料が空なら0()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.FreightText = "");
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).Freight, Is.EqualTo(0m));
+        }
+
+        [Test, Basis("VAL-NUMERIC"), Basis("EV-ORD-402")]
+        public void OrdTfShipSave_送料0は通る()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.FreightText = "0");
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.Freight, Is.EqualTo(0m));
+            Assert.That(row.ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+        }
+
+        [Test, Basis("VAL-DATE"), Basis("ORD-T3")]
+        public void OrdTfShipSave_出荷日が受注日と同じ日は通る()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = "2199/03/01");
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 1)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+        }
+
+        [Test, Basis("VAL-DATE"), Basis("ORD-T3"), Basis("DEC-ORD-58")]
+        public void OrdTfShipSave_出荷日の上端は通る()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = "9999/12/31");
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(new DateTime(9999, 12, 31)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+        }
+
+        [Test, Basis("VAL-DATE"), Basis("ORD-T3"), Basis("DEC-ORD-57")]
+        public void OrdTfShipSave_出荷日が受注日より前()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = "2199/02/28");
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EqualTo(new[] { "ShippedDate" }));
+            Assert.That(rv.ErrorFieldMessages.Count, Is.EqualTo(1));
+            Assert.That(rv.ErrorFieldMessages[0], Is.EqualTo(MsgShipDateBeforeOrder));
+            Assert.That(rv.ErrorMessages, Is.Empty);
+            AssertUntouched(before, o, c.P1, c.P2);
+        }
+
+        private void AssertShipViolation(ShipCtx c, int o, OrdTfReturnValue rv, ShipSnap before, params string[] fields)
+        {
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields.OrderBy(x => x).ToList(), Is.EqualTo(fields.OrderBy(x => x).ToList()));
+            AssertUntouched(before, o, c.P1, c.P2);
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [Basis("VAL-REQUIRED"), Basis("EV-ORD-402")]
+        public void OrdTfShipSave_出荷日が空(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = text);
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate");
+            Assert.That(rv.ErrorFieldMessages[0], Is.Not.Null.And.Not.Empty);
+        }
+
+        [Test, Basis("VAL-REQUIRED"), Basis("DEC-ORD-56")]
+        public void OrdTfShipSave_出荷日が空白だけ()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = "  ");
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate");
+        }
+
+        [TestCase("abc")]
+        [TestCase("2199/13/01")]
+        [TestCase("2199/02/30")]
+        [Basis("VAL-DATE")]
+        public void OrdTfShipSave_出荷日が日付でない(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = text);
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate");
+        }
+
+        [TestCase("2199-03-10")]
+        [TestCase("2199/3/10")]
+        [Basis("VAL-DATE"), Basis("共通仕様 4 節（yyyy/MM/dd）"), Basis("DEC-ORD-56")]
+        public void OrdTfShipSave_出荷日の形式(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = text);
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate");
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [Basis("VAL-REQUIRED")]
+        public void OrdTfShipSave_配送業者の未選択(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShipViaText = text);
+
+            AssertShipViolation(c, o, rv, before, "ShipVia");
+        }
+
+        [TestCase("2147483647")]
+        [TestCase("abc")]
+        [Basis("VAL-EXISTS")]
+        public void OrdTfShipSave_存在しない配送業者(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShipViaText = text);
+
+            AssertShipViolation(c, o, rv, before, "ShipVia");
+        }
+
+        [TestCase("-0.01")]
+        [TestCase("abc")]
+        [Basis("VAL-NUMERIC")]
+        public void OrdTfShipSave_送料の不正(string text)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.FreightText = text);
+
+            AssertShipViolation(c, o, rv, before, "Freight");
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("共通仕様 6 節（全項目をまとめて検証）")]
+        public void OrdTfShipSave_違反はまとめて返す()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => { pv.ShippedDateText = "abc"; pv.ShipViaText = ""; pv.FreightText = "-1"; });
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate", "ShipVia", "Freight");
+        }
+
+        [TestCase("deleted")]
+        [TestCase("bumped")]
+        [Basis("EV-ORD-402")]
+        public void OrdTfShipSave_検証が先(string kind)
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            if (kind == "deleted") TestData.DeleteOrder(o); else TestData.BumpOrder(o, 99m);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.ShippedDateText = "");
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EqualTo(new[] { "ShippedDate" }));
+            Assert.That(rv.ErrorMessage, Is.Not.EqualTo(MsgNotFound));
+            Assert.That(rv.ErrorMessage, Is.Not.EqualTo(MsgConflict));
+            if (kind == "bumped")
+            {
+                TestData.OrderRow row = TestData.GetOrder(o);
+                Assert.That(row.Freight, Is.EqualTo(99.00m));
+                Assert.That(row.RowVersion, Is.EqualTo(2));
+                Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            }
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("ERR-CONFLICT"), Basis("共通仕様 9.1")]
+        public void OrdTfShipSave_行バージョンが違うと競合()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            TestData.BumpOrder(o, 99m);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgConflict));
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.Freight, Is.EqualTo(99.00m));
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(row.ShippedDate, Is.Null);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(7));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("ERR-NOTFOUND")]
+        public void OrdTfShipSave_消された受注()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotFound));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(7));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("共通仕様 9.1")]
+        public void OrdTfShipSave_同じ行バージョンの2回目は競合で在庫は1回しか引かれない()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue r1 = ShipSave(c, o);
+            OrdTfReturnValue r2 = ShipSave(c, o);
+
+            Assert.That(r1.ErrorFlag, Is.False, r1.ErrorMessage);
+            Assert.That(r2.ErrorFlag, Is.True);
+            Assert.That(r2.ErrorMessage, Is.EqualTo(MsgConflict));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(2));
+        }
+
+        private static void ShipUpdateInput(ShipCtx c, int o, OrdTfParameterValue pv)
+        {
+            pv.OrderID = o;
+            pv.RowVersion = 1;
+            pv.DisplayedShipped = true;
+            pv.ShippedDateText = "2199/03/12";
+            pv.ShipViaText = c.S1.ToString(Inv);
+            pv.FreightText = "20.00";
+        }
+
+        [Test, Basis("EV-ORD-402")]
+        public void OrdTfShipSave_出荷済は情報だけ更新し在庫は変えない()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = Call("OrdTfShipSave", pv => ShipUpdateInput(c, o, pv));
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.ShippedDate, Is.EqualTo(D(2199, 3, 12)));
+            Assert.That(row.ShipVia, Is.EqualTo(c.S1));
+            Assert.That(row.Freight, Is.EqualTo(20.00m));
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+            Assert.That(TestData.GetProductRowVersion(c.P1), Is.EqualTo(1));
+            Assert.That(TestData.GetProductRowVersion(c.P2), Is.EqualTo(1));
+        }
+
+        [Test, Basis("EV-ORD-402")]
+        public void OrdTfShipSave_出荷済の更新は在庫が数量に足りなくても通る()
+        {
+            ShipCtx c = NewShipCtx(0, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = Call("OrdTfShipSave", pv => ShipUpdateInput(c, o, pv));
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 12)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(0));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("VAL-DATE")]
+        public void OrdTfShipSave_出荷済の更新でも検証する()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = Call("OrdTfShipSave", pv => { ShipUpdateInput(c, o, pv); pv.ShippedDateText = "2199/02/28"; });
+
+            AssertShipViolation(c, o, rv, before, "ShippedDate");
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 5)));
+        }
+
+        [TestCase("bumped")]
+        [TestCase("deleted")]
+        [Basis("EV-ORD-402"), Basis("ERR-CONFLICT"), Basis("ERR-NOTFOUND"), Basis("共通仕様 9.1")]
+        public void OrdTfShipSave_出荷済の更新で行バージョンが違うと競合_消されたらNOTFOUND(string kind)
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            if (kind == "deleted") TestData.DeleteOrder(o); else TestData.BumpOrder(o, 99m);
+
+            OrdTfReturnValue rv = Call("OrdTfShipSave", pv => ShipUpdateInput(c, o, pv));
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(kind == "deleted" ? MsgNotFound : MsgConflict));
+            if (kind == "bumped")
+            {
+                TestData.OrderRow row = TestData.GetOrder(o);
+                Assert.That(row.ShippedDate, Is.EqualTo(D(2199, 3, 5)));
+                Assert.That(row.ShipVia, Is.EqualTo(c.S0));
+                Assert.That(row.Freight, Is.EqualTo(99.00m));
+                Assert.That(row.RowVersion, Is.EqualTo(2));
+            }
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("DEC-ORD-60"), Basis("EV-ORD-402"), Basis("OD-T5")]
+        public void OrdTfShipSave_表示時点が未出荷と主張されてもDBが出荷済なら在庫を引かない()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = Call("OrdTfShipSave", pv => { ShipUpdateInput(c, o, pv); pv.DisplayedShipped = false; });
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 12)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7), "二重に引かない");
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5), "二重に引かない");
+        }
+
+        [Test, Basis("DEC-ORD-60"), Basis("EV-ORD-402"), Basis("OD-T5"), Basis("PRD-T5")]
+        public void OrdTfShipSave_表示時点が出荷済と主張されてもDBが未出荷なら在庫を引き落とす()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.DisplayedShipped = true);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetOrder(o).ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7), "引き落としを省かせない");
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5), "引き落としを省かせない");
+        }
+
+        [Test, Basis("DEC-ORD-60"), Basis("EV-ORD-402"), Basis("PRD-T5")]
+        public void OrdTfShipSave_出荷済と主張してもDBが未出荷で在庫が足りなければ不足()
+        {
+            ShipCtx c = NewShipCtx(10, 1);
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipSave(c, o, pv => pv.DisplayedShipped = true);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgShort + data.ProductNames[c.P2]));
+            AssertUntouched(before, o, c.P1, c.P2);
+        }
+
+        [Test, Basis("DEC-ORD-59"), Basis("共通仕様 9.1"), Basis("EV-ORD-402")]
+        public void OrdTfShipSave_確定で在庫を更新した商品の行バージョンが進む()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            int r = data.NewProduct(mark: 'R', unitsInStock: 4);
+
+            OrdTfReturnValue rv = ShipSave(c, o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetProductRowVersion(c.P1), Is.EqualTo(2));
+            Assert.That(TestData.GetProductRowVersion(c.P2), Is.EqualTo(2));
+            Assert.That(TestData.GetProductRowVersion(r), Is.EqualTo(1));
+        }
+
+        // ---------------------------------------------------------------- 3.3 OrdTfShipCancel（EV-ORD-403）
+
+        [Test, Basis("EV-ORD-403")]
+        public void OrdTfShipCancel_出荷日が未設定に戻る()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.OrderID, Is.EqualTo(o));
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.ShippedDate, Is.Null);
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(row.ShipVia, Is.EqualTo(c.S0), "変更しない");
+            Assert.That(row.Freight, Is.EqualTo(5.00m), "変更しない");
+            Assert.That(row.CustomerID, Is.EqualTo(c.K));
+            Assert.That(row.OrderDate, Is.EqualTo(D(2199, 3, 1)));
+            Assert.That(row.RequiredDate, Is.EqualTo(D(2199, 12, 31)));
+            Assert.That(row.ShipName, Is.EqualTo(c.Mark + "N"));
+            Assert.That(row.ShipAddress, Is.EqualTo("SA"));
+            Assert.That(row.ShipCity, Is.EqualTo("SC"));
+            Assert.That(row.ShipRegion, Is.EqualTo("SR"));
+            Assert.That(row.ShipPostalCode, Is.EqualTo("SP"));
+            Assert.That(row.ShipCountry, Is.EqualTo("SY"));
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("OD-T5")]
+        public void OrdTfShipCancel_在庫が戻る()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(7));
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("OD-T5")]
+        public void OrdTfShipCancel_在庫は数量を加算して戻す()
+        {
+            ShipCtx c = NewShipCtx(20, 4);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(23));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(6));
+        }
+
+        [Test, Basis("EV-ORD-403")]
+        public void OrdTfShipCancel_ほかの受注と商品に触れない()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            int o2 = data.NewOrder(customerId: c.K, orderDate: D(2199, 3, 1), freight: 1.00m);
+            data.NewDetail(o2, c.P1, 10.00m, 1, 0f);
+            TestData.BumpOrder(o2, 1.00m);
+            int r = data.NewProduct(mark: 'R', unitsInStock: 4);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            TestData.OrderRow row2 = TestData.GetOrder(o2);
+            Assert.That(row2.RowVersion, Is.EqualTo(2));
+            Assert.That(row2.ShippedDate, Is.Null);
+            Assert.That(TestData.GetDetails(o2).Count, Is.EqualTo(1));
+            Assert.That(TestData.GetUnitsInStock(r), Is.EqualTo(4));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10), "o2 の数量を足さない");
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("ERR-BIZ")]
+        public void OrdTfShipCancel_未出荷の受注はERR_BIZ()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+            ShipSnap before = Snap(o, c.P1, c.P2);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotShipped));
+            AssertUntouched(before, o, c.P1, c.P2);
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("ERR-CONFLICT")]
+        public void OrdTfShipCancel_行バージョンが違うと競合()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            TestData.BumpOrder(o, 99m);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgConflict));
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.ShippedDate, Is.EqualTo(D(2199, 3, 5)));
+            Assert.That(row.Freight, Is.EqualTo(99.00m));
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("ERR-NOTFOUND")]
+        public void OrdTfShipCancel_消された受注()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            TestData.DeleteOrder(o);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo(MsgNotFound));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("共通仕様 9.1")]
+        public void OrdTfShipCancel_同じ行バージョンの2回目は競合で在庫は1回しか戻らない()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+
+            OrdTfReturnValue r1 = ShipCancel(o, 1);
+            OrdTfReturnValue r2 = ShipCancel(o, 1);
+
+            Assert.That(r1.ErrorFlag, Is.False, r1.ErrorMessage);
+            Assert.That(r2.ErrorFlag, Is.True);
+            Assert.That(r2.ErrorMessage, Is.EqualTo(MsgConflict));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(7));
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(2));
+        }
+
+        [Test, Basis("DEC-ORD-59"), Basis("共通仕様 9.1"), Basis("EV-ORD-403")]
+        public void OrdTfShipCancel_取消で在庫を戻した商品の行バージョンが進む()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            int r = data.NewProduct(mark: 'R', unitsInStock: 4);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(TestData.GetProductRowVersion(c.P1), Is.EqualTo(2));
+            Assert.That(TestData.GetProductRowVersion(c.P2), Is.EqualTo(2));
+            Assert.That(TestData.GetProductRowVersion(r), Is.EqualTo(1));
+        }
+
+        [Test, Basis("EV-ORD-402"), Basis("EV-ORD-403"), Basis("OD-T5"), Basis("PRD-T5"), Basis("共通仕様 9.1")]
+        public void OrdTfShipCancel_確定と取消の往復で在庫は元に戻る()
+        {
+            ShipCtx c = NewShipCtx();
+            int o = NewShipOrder(c, false);
+
+            OrdTfReturnValue s1 = ShipSave(c, o);
+            int p1a = TestData.GetUnitsInStock(c.P1).GetValueOrDefault(-1);
+            int p2a = TestData.GetUnitsInStock(c.P2).GetValueOrDefault(-1);
+            int rv1 = TestData.GetOrder(o).RowVersion;
+            OrdTfReturnValue cn = ShipCancel(o, 2);
+            int p1b = TestData.GetUnitsInStock(c.P1).GetValueOrDefault(-1);
+            int p2b = TestData.GetUnitsInStock(c.P2).GetValueOrDefault(-1);
+            DateTime? shippedAfterCancel = TestData.GetOrder(o).ShippedDate;
+            int rv2 = TestData.GetOrder(o).RowVersion;
+            OrdTfReturnValue s2 = ShipSave(c, o, pv => pv.RowVersion = 3);
+            int p1c = TestData.GetUnitsInStock(c.P1).GetValueOrDefault(-1);
+            int p2c = TestData.GetUnitsInStock(c.P2).GetValueOrDefault(-1);
+            TestData.OrderRow end = TestData.GetOrder(o);
+
+            Assert.That(s1.ErrorFlag, Is.False, "(1) " + s1.ErrorMessage);
+            Assert.That(cn.ErrorFlag, Is.False, "(2) " + cn.ErrorMessage);
+            Assert.That(s2.ErrorFlag, Is.False, "(3) " + s2.ErrorMessage);
+            Assert.That(new[] { p1a, p1b, p1c }, Is.EqualTo(new[] { 7, 10, 7 }));
+            Assert.That(new[] { p2a, p2b, p2c }, Is.EqualTo(new[] { 5, 7, 5 }));
+            Assert.That(shippedAfterCancel, Is.Null);
+            Assert.That(end.ShippedDate, Is.EqualTo(D(2199, 3, 10)));
+            Assert.That(new[] { rv1, rv2, end.RowVersion }, Is.EqualTo(new[] { 2, 3, 4 }));
+        }
     }
 }

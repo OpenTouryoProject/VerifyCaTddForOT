@@ -15,6 +15,7 @@
 //*  2026/11/13  実装役            新規作成（テスト先行の Red 用。契約はテスト仕様 1.3）
 //*  2026/11/24  実装役            受注詳細（OrdTfDetailLine と詳細のメンバ）を追加（EV-ORD-201。Red の足場。契約はテスト仕様 1.1）
 //*  2026/11/24  実装役            受注詳細（登録・編集）のメンバ・OrdTfEditLine を追加（EV-ORD-301〜308。Red の足場）
+//*  2026/11/25  実装役            出荷ステータス更新ダイアログのメンバ・OrdTfShipStockLine を追加（EV-ORD-401〜403。Red の足場）
 //**********************************************************************************
 
 using System;
@@ -120,6 +121,23 @@ namespace WSIFType_sample
         /// <summary>明細の行バージョン</summary>
         public int RowVersion;
     }
+    /// <summary>出荷ダイアログの在庫引落の内訳の 1 行（OrdTfShipInit。EV-ORD-401 手順 5-4）</summary>
+    [Serializable()]
+    public class OrdTfShipStockLine
+    {
+        /// <summary>商品名</summary>
+        public string ProductName;
+
+        /// <summary>数量</summary>
+        public int Quantity;
+
+        /// <summary>現在庫数（NULL は null）</summary>
+        public int? UnitsInStock;
+
+        /// <summary>在庫が足りない（Quantity &gt; UnitsInStock。強調する行）</summary>
+        public bool Short;
+    }
+
     /// <summary>受注一覧（OrdTf）の戻り値クラス</summary>
     /// <remarks>シリアライズ可能にする（WS対応）</remarks>
     [Serializable()]
@@ -250,6 +268,22 @@ namespace WSIFType_sample
 
         /// <summary>保存の検証で、項目単位の違反の文言（ErrorFields と同じ順。OrdTfSave）</summary>
         public List<string> ErrorFieldMessages = new List<string>();
+
+        #endregion
+
+        #region 出荷ステータス更新ダイアログ（EV-ORD-401〜403。CustomerName・Status・RequiredDate・Freight・RowVersion・ShipperOptions は既存を再利用）
+
+        /// <summary>出荷済か（OrdTfShipInit。ShippedDate が NULL でない）</summary>
+        public bool ShipIsShipped;
+
+        /// <summary>SC-ORD-04-I05 の値（OrdTfShipInit。未出荷は当日、出荷済は ShippedDate）</summary>
+        public DateTime? ShipDate;
+
+        /// <summary>SC-ORD-04-I06 の選択（OrdTfShipInit。Orders.ShipVia。NULL は未選択）</summary>
+        public int? ShipViaID;
+
+        /// <summary>SC-ORD-04-I08 の在庫引落の内訳（OrdTfShipInit。未出荷だけ。並びは仕様が決めていない）</summary>
+        public List<OrdTfShipStockLine> StockLines = new List<OrdTfShipStockLine>();
 
         #endregion
     }
