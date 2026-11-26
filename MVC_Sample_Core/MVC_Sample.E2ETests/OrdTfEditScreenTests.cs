@@ -209,7 +209,7 @@ namespace MVC_Sample.E2ETests
             await OpenNewAsync();
 
             await Expect(Loc("#orderId")).ToHaveTextAsync("（登録時に採番）");
-            await Expect(Loc("#OrderDate")).ToHaveValueAsync(DateTime.Today.ToString("yyyy/MM/dd"));
+            await Expect(Loc("#OrderDate")).ToHaveValueAsync(DateTime.Today.ToString("yyyy-MM-dd"));
             await Expect(Loc("#Freight")).ToHaveValueAsync(NumRe(0m));
             await Expect(Loc("#CustomerID")).ToHaveValueAsync("");
             await Expect(Loc("#EmployeeID")).ToHaveValueAsync("");
@@ -611,6 +611,11 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Danger);
             await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Info);
             await Expect(Row(0).Locator(".line-quantity")).ToHaveValueAsync("6");
+
+            // 超える行が無くなったら消える（DEC-ORD-44）
+            await LineSetAsync(0, "line-quantity", "5");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Warning);
         }
 
         [Test, Basis("EV-ORD-307"), Basis("共通仕様 3 節"), Basis("DEC-ORD-46")]
@@ -678,8 +683,8 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#CustomerID")).ToHaveValueAsync(c.K);
             await Expect(Loc("#EmployeeID")).ToHaveValueAsync(c.E.ToString());
             await Expect(Loc("#ShipVia")).ToHaveValueAsync(c.S.ToString());
-            await Expect(Loc("#OrderDate")).ToHaveValueAsync("2198/03/05");
-            await Expect(Loc("#RequiredDate")).ToHaveValueAsync("2198/04/01");
+            await Expect(Loc("#OrderDate")).ToHaveValueAsync("2198-03-05");
+            await Expect(Loc("#RequiredDate")).ToHaveValueAsync("2198-04-01");
             await Expect(Loc("#Freight")).ToHaveValueAsync(NumRe(34.50m));
             await Expect(Loc("#ShipName")).ToHaveValueAsync("ShipTo Co");
             await Expect(Loc("#ShipAddress")).ToHaveValueAsync("4-5-6 Ginza");
@@ -796,8 +801,8 @@ namespace MVC_Sample.E2ETests
             await SelectAsync("#CustomerID", c.K);
             await SelectAsync("#EmployeeID", c.E.ToString());
             await SelectAsync("#ShipVia", c.S.ToString());
-            await SetAsync("#OrderDate", "2198/03/05");
-            await SetAsync("#RequiredDate", "2198/04/01");
+            await SetAsync("#OrderDate", "2198-03-05");
+            await SetAsync("#RequiredDate", "2198-04-01");
             await SetAsync("#Freight", "10");
             await LineSelectAsync(0, c.P1);
             await LineSetAsync(0, "line-unitprice", "10.00");
@@ -853,8 +858,8 @@ namespace MVC_Sample.E2ETests
             await OpenNewAsync();
             await SelectAsync("#CustomerID", c.K);
             await SelectAsync("#EmployeeID", c.E.ToString());
-            await SetAsync("#OrderDate", "2198/04/02");
-            await SetAsync("#RequiredDate", "2198/04/01");
+            await SetAsync("#OrderDate", "2198-04-02");
+            await SetAsync("#RequiredDate", "2198-04-01");
             await SetAsync("#Freight", "-1");
             await SetAsync("#ShipName", "手入力");
 
@@ -870,7 +875,7 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#messageArea")).ToHaveClassAsync(Danger);
             await Expect(Loc("#orderId")).ToHaveTextAsync("（登録時に採番）");
             await Expect(Loc("#ShipName")).ToHaveValueAsync("手入力");
-            await Expect(Loc("#OrderDate")).ToHaveValueAsync("2198/04/02");
+            await Expect(Loc("#OrderDate")).ToHaveValueAsync("2198-04-02");
             Assert.That(TestData.CountOrdersOfCustomer(c.K), Is.EqualTo(0));
         }
 
@@ -1050,6 +1055,345 @@ namespace MVC_Sample.E2ETests
 
             await Expect(Loc("#orderList")).ToBeVisibleAsync();
             Assert.That(dialogs, Is.Empty, "確認ダイアログが出ない");
+        }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.2。
+
+        private const string MsgMissing = "商品マスタに無い商品の明細があります。";
+
+        private async Task QuietAsync() { await page.WaitForLoadStateAsync(LoadState.NetworkIdle); }
+
+        private async Task RemoveLineAsync(int nthChild)
+        {
+            await ClickAsync("#lineList tbody tr:nth-child(" + nthChild + ") .line-remove");
+        }
+
+        private async Task ExpectNoWarningAsync()
+        {
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Warning);
+        }
+
+        private async Task ExpectWarningAsync(string text)
+        {
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(text);
+            await Expect(Loc("#messageArea")).ToHaveClassAsync(Warning);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Danger);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Info);
+        }
+
+        /// <summary>編集用の受注（Ctx の K・E・S）に、A（在庫 20・数量 2）と、消した商品 Za・Zb（数量 1・1）の明細を入れる。Za・Zb は先に作る</summary>
+        private async Task<int[]> NewOrderWithMissingAsync(Ctx c, bool withZb)
+        {
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int pa = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 20);
+            int o = NewEditOrder(c);
+            data.NewDetail(o, pa, 10.00m, 2, 0f);
+            data.NewDetail(o, za, 100.00m, 1, 0f);
+            if (withZb) data.NewDetail(o, zb, 20.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+            await Task.CompletedTask;
+            return new[] { o, pa, za, zb };
+        }
+
+        [Test, Basis("規約：日付の入力（cmn-framework.md「画面共通」）")]
+        public async Task 編集_日付の入力欄はdate型()
+        {
+            await OpenNewAsync();
+
+            await Expect(Loc("#OrderDate")).ToHaveAttributeAsync("type", "date");
+            await Expect(Loc("#RequiredDate")).ToHaveAttributeAsync("type", "date");
+        }
+
+        [Test, Basis("規約：日付の入力（入力途中の値は形式の違反。未入力として扱わない）"), Basis("VAL-DATE"), Basis("DEC-CMN-05"), Basis("DEC-ORD-30")]
+        public async Task 保存_受注日の入力途中は形式の違反として扱い保存しない()
+        {
+            Ctx c = NewCtx();
+            await OpenNewAsync();
+            await SelectAsync("#CustomerID", c.K);
+            await SelectAsync("#EmployeeID", c.E.ToString());
+            await LineSelectAsync(0, c.P1);
+            await DateInput.TypePartialAsync(page, "#OrderDate");   // 入力途中の値
+            List<string> posts = DateInput.RecordPosts(page);
+
+            await ClickAsync("#btnMain1");
+
+            await Expect(Loc("#OrderDateError")).ToHaveTextAsync(NonEmpty);
+            await Expect(Loc("#OrderDateError")).ToHaveClassAsync(Danger);
+            await Expect(Loc("#RequiredDateError")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#orderId")).ToHaveTextAsync("（登録時に採番）");
+            Assert.That(await DateInput.IsBadInputAsync(page, "#OrderDate"), Is.True, "入力途中のまま");
+            await DateInput.ExpectNoPostAsync(page, posts);   // 送信を止めている（必須エラーでの拒否と区別する）
+            Assert.That(TestData.CountOrdersOfCustomer(c.K), Is.EqualTo(0));
+        }
+
+        [Test, Basis("規約：日付の入力（未入力として扱わない）"), Basis("VAL-DATE"), Basis("DEC-ORD-29")]
+        public async Task 保存_要求納期の入力途中は形式の違反として扱い保存しない()
+        {
+            Ctx c = NewCtx();
+            await OpenNewAsync();
+            await SelectAsync("#CustomerID", c.K);
+            await SelectAsync("#EmployeeID", c.E.ToString());
+            await SetAsync("#OrderDate", "2198-03-05");
+            await LineSelectAsync(0, c.P1);
+            await DateInput.TypePartialAsync(page, "#RequiredDate");   // 入力途中の値
+            List<string> posts = DateInput.RecordPosts(page);
+
+            await ClickAsync("#btnMain1");
+
+            await Expect(Loc("#RequiredDateError")).ToHaveTextAsync(NonEmpty);
+            await Expect(Loc("#RequiredDateError")).ToHaveClassAsync(Danger);
+            await Expect(Loc("#OrderDateError")).ToHaveTextAsync(Empty);
+            Assert.That(await DateInput.IsBadInputAsync(page, "#RequiredDate"), Is.True, "入力途中のまま");
+            await DateInput.ExpectNoPostAsync(page, posts);
+            Assert.That(TestData.CountOrdersOfCustomer(c.K), Is.EqualTo(0), "要求納期を未入力として保存していない");
+        }
+
+        [Test, Basis("EV-ORD-301"), Basis("DEC-ORD-76"), Basis("DEC-ORD-73"), Basis("DEC-ORD-75")]
+        public async Task 編集_商品マスタに無い明細は選択状態で残り付記し警告を出す()
+        {
+            Ctx c = NewCtx();
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int pa = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 20);
+            int o = NewEditOrder(c);
+            data.NewDetail(o, pa, 10.00m, 2, 0f);   // A・Zb・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 3, 0f);
+            data.NewDetail(o, za, 100.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            await OpenEditAsync(o);
+
+            await Expect(Lines).ToHaveCountAsync(3);
+            await Expect(Row(0).Locator(".line-product")).ToHaveValueAsync(pa.ToString());
+            await Expect(Row(1).Locator(".line-product")).ToHaveValueAsync(za.ToString());
+            await Expect(Row(1).Locator(".line-product option:checked")).ToHaveTextAsync("（商品マスタに無い：ID " + za + "）");
+            await Expect(Row(1).Locator(".line-stock")).ToHaveTextAsync(Empty);
+            await Expect(Row(1).Locator(".line-unitprice")).ToHaveValueAsync(NumRe(100.00m));
+            await Expect(Row(2).Locator(".line-product")).ToHaveValueAsync(zb.ToString());
+            await Expect(Row(0).Locator(".line-product option[value=\"" + za + "\"]")).ToHaveCountAsync(0);   // ほかの行の選択肢には無い
+            await Expect(Row(0).Locator(".line-product option[value=\"" + zb + "\"]")).ToHaveCountAsync(0);
+            await Expect(Loc("#subtotal")).ToHaveTextAsync("180.00");
+            await Expect(Loc("#total")).ToHaveTextAsync("185.00");
+            await ExpectWarningAsync(MsgMissing);
+            await Expect(Loc("#btnMain1")).ToBeEnabledAsync();
+        }
+
+        [Test, Basis("EV-ORD-308"), Basis("VAL-EXISTS"), Basis("DEC-ORD-76"), Basis("DEC-ORD-82")]
+        public async Task 編集_商品マスタに無い明細の数量を変えて保存できる()
+        {
+            Ctx c = NewCtx();
+            int[] ids = await NewOrderWithMissingAsync(c, false);
+            int o = ids[0], za = ids[2];
+            await OpenEditAsync(o);
+            await Expect(Lines).ToHaveCountAsync(2);
+
+            await LineSetAsync(1, "line-quantity", "5");
+            await QuietAsync();
+
+            // 商品マスタに無い行は在庫超過の警告の対象にしない（在庫が空の行は超える行に数えない）
+            await Expect(Loc("#messageArea")).Not.ToContainTextAsync(MsgStock);
+            await ClickAsync("#btnMain1");
+
+            await Expect(Loc("#detailList")).ToBeVisibleAsync();   // 保存の後の #messageArea は期待にしない（DEC-ORD-82 (a)：定めない）
+            await Expect(Loc("#orderId")).ToHaveTextAsync(o.ToString());
+            await Expect(DetailRows).ToHaveCountAsync(2);
+            await Expect(DetailRows.Nth(1).Locator("td").Nth(4)).ToHaveTextAsync("5");
+            TestData.DetailRow dz = TestData.GetDetails(o).Single(d => d.ProductID == za);
+            Assert.That(dz.Quantity, Is.EqualTo(5));
+            Assert.That(dz.RowVersion, Is.EqualTo(2));
+        }
+
+        [Test, Basis("EV-ORD-305"), Basis("EV-ORD-308"), Basis("DEC-ORD-76"), Basis("DEC-ORD-82")]
+        public async Task 編集_商品マスタに無い明細の行を削除して保存できる()
+        {
+            Ctx c = NewCtx();
+            int[] ids = await NewOrderWithMissingAsync(c, false);
+            int o = ids[0], pa = ids[1];
+            await OpenEditAsync(o);
+            await Expect(Lines).ToHaveCountAsync(2);
+
+            await RemoveLineAsync(2);   // Za の行
+            await Expect(Lines).ToHaveCountAsync(1);
+            await Expect(Loc("#subtotal")).ToHaveTextAsync("20.00");
+            await ExpectNoWarningAsync();   // 商品マスタに無い行が無くなったので警告が消える（DEC-ORD-82 (b)）
+            await ClickAsync("#btnMain1");
+
+            await Expect(Loc("#detailList")).ToBeVisibleAsync();
+            await Expect(DetailRows).ToHaveCountAsync(1);
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).ToArray(), Is.EqualTo(new[] { pa }));
+        }
+
+        [Test, Basis("EV-ORD-306"), Basis("EV-ORD-308"), Basis("DEC-ORD-76"), Basis("DEC-ORD-82")]
+        public async Task 編集_商品マスタに無い明細の行を存在する商品に付け替えて保存できる()
+        {
+            Ctx c = NewCtx();
+            int[] ids = await NewOrderWithMissingAsync(c, false);
+            int o = ids[0], pa = ids[1];
+            int n = data.NewProduct(mark: 'N', unitPrice: 15.00m, unitsInStock: 20);
+            await OpenEditAsync(o);
+            await Expect(Lines).ToHaveCountAsync(2);
+
+            await LineSelectAsync(1, n);
+            await Expect(Row(1).Locator(".line-stock")).ToHaveTextAsync("20");   // 商品の情報の応答が来て反映されるのを待つ
+            await ExpectNoWarningAsync();   // 商品マスタに無い行が無くなったので警告が消える（DEC-ORD-82 (b)）
+            await ClickAsync("#btnMain1");
+
+            await Expect(Loc("#detailList")).ToBeVisibleAsync();
+            await Expect(DetailRows).ToHaveCountAsync(2);
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).OrderBy(x => x).ToArray(),
+                Is.EqualTo(new[] { pa, n }.OrderBy(x => x).ToArray()));
+        }
+
+        [TestCase("行の削除")]
+        [TestCase("商品の付け替え")]
+        [Basis("DEC-ORD-73"), Basis("DEC-ORD-82"), Basis("DEC-ORD-44")]
+        public async Task 編集_商品マスタに無い行が残る間は警告を消さず無くなったら消す(string how)
+        {
+            Ctx c = NewCtx();
+            int[] ids = await NewOrderWithMissingAsync(c, true);
+            int o = ids[0];
+            int n = data.NewProduct(mark: 'N', unitPrice: 15.00m, unitsInStock: 20);
+            int n2 = data.NewProduct(mark: 'O', unitPrice: 15.00m, unitsInStock: 20);
+            await OpenEditAsync(o);
+            await Expect(Lines).ToHaveCountAsync(3);   // A・Za・Zb
+            await ExpectWarningAsync(MsgMissing);
+
+            if (how == "行の削除")
+            {
+                await RemoveLineAsync(2);   // Za
+                await Expect(Lines).ToHaveCountAsync(2);
+                await QuietAsync();
+                await ExpectWarningAsync(MsgMissing);   // Zb が残るので残る
+                await RemoveLineAsync(2);   // Zb
+                await Expect(Lines).ToHaveCountAsync(1);
+            }
+            else
+            {
+                await LineSelectAsync(1, n);   // Za → N
+                await Expect(Row(1).Locator(".line-stock")).ToHaveTextAsync("20");   // N の在庫（商品の情報の応答の反映）を待ってから確かめる
+                await ExpectWarningAsync(MsgMissing);   // Zb が残るので残る
+                await LineSelectAsync(2, n2);  // Zb → N2
+            }
+            await QuietAsync();
+
+            await ExpectNoWarningAsync();   // 商品マスタに無い行が無くなったので消える
+        }
+
+        [Test, Basis("DEC-ORD-44"), Basis("EV-ORD-306"), Basis("EV-ORD-307")]
+        public async Task 在庫超過_超える行が残る間は警告を消さない_数量の変更()
+        {
+            int p1 = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 5);
+            int p2 = data.NewProduct(mark: 'B', unitPrice: 10.00m, unitsInStock: 5);
+            await OpenNewAsync();
+            await LineSelectAsync(0, p1);
+            await LineSetAsync(0, "line-quantity", "6");
+            await ClickAsync("#btnAddLine");
+            await Expect(Lines).ToHaveCountAsync(2);
+            await LineSelectAsync(1, p2);
+            await LineSetAsync(1, "line-quantity", "6");
+            await ExpectWarningAsync(MsgStock);
+
+            await LineSetAsync(0, "line-quantity", "5");
+            await QuietAsync();
+            await ExpectWarningAsync(MsgStock);   // 行 2 が超えているので残る
+
+            await LineSetAsync(1, "line-quantity", "5");
+            await QuietAsync();
+            await ExpectNoWarningAsync();   // 超える行が無くなったので消える
+        }
+
+        [Test, Basis("DEC-ORD-44"), Basis("EV-ORD-306")]
+        public async Task 在庫超過_超える行が残る間は警告を消さない_商品の選択()
+        {
+            int p1 = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 5);
+            int p2 = data.NewProduct(mark: 'B', unitPrice: 10.00m, unitsInStock: 5);
+            int p3 = data.NewProduct(mark: 'C', unitPrice: 10.00m, unitsInStock: 100);
+            int p4 = data.NewProduct(mark: 'D', unitPrice: 10.00m, unitsInStock: 100);
+            await OpenNewAsync();
+            await LineSelectAsync(0, p1);
+            await LineSetAsync(0, "line-quantity", "6");
+            await ClickAsync("#btnAddLine");
+            await Expect(Lines).ToHaveCountAsync(2);
+            await LineSelectAsync(1, p2);
+            await LineSetAsync(1, "line-quantity", "6");
+            await ExpectWarningAsync(MsgStock);
+
+            await LineSelectAsync(0, p3);
+            await Expect(Row(0).Locator(".line-stock")).ToHaveTextAsync("100");   // P3 の在庫（商品の情報の応答の反映）を待ってから確かめる
+            await ExpectWarningAsync(MsgStock);   // 行 2 が超えているので残る
+
+            await LineSelectAsync(1, p4);
+            await QuietAsync();
+            await ExpectNoWarningAsync();   // 消える
+        }
+
+        [Test, Basis("DEC-ORD-44"), Basis("EV-ORD-305")]
+        public async Task 在庫超過_超える行が残る間は警告を消さない_行の削除()
+        {
+            int p1 = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 5);
+            int p2 = data.NewProduct(mark: 'B', unitPrice: 10.00m, unitsInStock: 5);
+            int p3 = data.NewProduct(mark: 'C', unitPrice: 10.00m, unitsInStock: 5);
+            await OpenNewAsync();
+            await LineSelectAsync(0, p1);
+            await LineSetAsync(0, "line-quantity", "6");
+            await ClickAsync("#btnAddLine");
+            await Expect(Lines).ToHaveCountAsync(2);
+            await LineSelectAsync(1, p2);
+            await LineSetAsync(1, "line-quantity", "6");
+            await ClickAsync("#btnAddLine");
+            await Expect(Lines).ToHaveCountAsync(3);
+            await LineSelectAsync(2, p3);
+            await LineSetAsync(2, "line-quantity", "1");   // 超えない
+
+            await RemoveLineAsync(1);   // 行 1（P1）を削除
+            await Expect(Lines).ToHaveCountAsync(2);
+            await QuietAsync();
+            await ExpectWarningAsync(MsgStock);   // P2 の行が超えているので残る
+
+            await RemoveLineAsync(1);   // 先頭になった P2 の行を削除
+            await Expect(Lines).ToHaveCountAsync(1);
+            await QuietAsync();
+            await ExpectNoWarningAsync();   // P3 の行だけで超えない
+        }
+
+        [Test, Basis("DEC-ORD-44"), Basis("EV-ORD-301")]
+        public async Task 在庫超過_編集の読み込みで既存の明細が超えていれば警告を出す()
+        {
+            Ctx c = NewCtx();
+            int pa = data.NewProduct(mark: 'A', unitPrice: 10.00m, unitsInStock: 5);
+            int pm = data.NewProduct(mark: 'M', unitPrice: 10.00m, unitsInStock: 100);
+            int o = NewEditOrder(c);
+            data.NewDetail(o, pa, 10.00m, 6, 0f);
+            data.NewDetail(o, pm, 10.00m, 1, 0f);
+
+            await OpenEditAsync(o);
+
+            await Expect(Lines).ToHaveCountAsync(2);
+            await ExpectWarningAsync(MsgStock);
+        }
+
+        [Test, Basis("DEC-ORD-44"), Basis("EV-ORD-301")]
+        public async Task 在庫超過_在庫が空の行は超える行に数えない()
+        {
+            Ctx c = NewCtx();
+            int px = data.NewProduct(mark: 'X', unitPrice: 10.00m, unitsInStock: null);
+            int pm = data.NewProduct(mark: 'M', unitPrice: 10.00m, unitsInStock: 100);
+            int o = NewEditOrder(c);
+            data.NewDetail(o, pm, 10.00m, 1, 0f);
+            data.NewDetail(o, px, 10.00m, 99, 0f);
+
+            await OpenEditAsync(o);
+
+            await Expect(Lines).ToHaveCountAsync(2);   // M・X
+            await Expect(Row(1).Locator(".line-stock")).ToHaveTextAsync(Empty);
+            await QuietAsync();
+            await ExpectNoWarningAsync();
         }
     }
 }

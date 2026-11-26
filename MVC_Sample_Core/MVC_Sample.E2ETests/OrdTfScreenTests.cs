@@ -256,8 +256,8 @@ namespace MVC_Sample.E2ETests
             await OpenAsync();
             await SelectAsync("#CustomerID", k);
             await SelectAsync("#EmployeeID", e1.ToString());
-            await FillAsync("#OrderDateFrom", "2198/05/15");
-            await FillAsync("#OrderDateTo", "2198/05/20");
+            await FillAsync("#OrderDateFrom", "2198-05-15");
+            await FillAsync("#OrderDateTo", "2198-05-20");
             await SelectAsync("#ShippedStatus", "未出荷");
             await SearchAsync();
 
@@ -266,8 +266,8 @@ namespace MVC_Sample.E2ETests
             // 5 つの入力欄が操作後も入力のまま
             await Expect(Loc("#CustomerID")).ToHaveValueAsync(k);
             await Expect(Loc("#EmployeeID")).ToHaveValueAsync(e1.ToString());
-            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198/05/15");
-            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198/05/20");
+            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198-05-15");
+            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198-05-20");
             await Expect(Loc("#ShippedStatus")).ToHaveValueAsync("未出荷");
         }
 
@@ -332,29 +332,29 @@ namespace MVC_Sample.E2ETests
         public async Task 検索_日付の形式違反は該当項目の直下だけ()
         {
             await OpenAsync();
-            await FillAsync("#OrderDateFrom", "abc");
+            await DateInput.TypePartialAsync(page, "#OrderDateFrom");   // 入力途中の値（型が date なので abc は入れられない）
             await FillAsync("#OrderDateTo", "");
             await SearchAsync();
 
             await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);
             await Expect(Loc("#OrderDateToError")).ToHaveTextAsync(Empty);
             await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
-            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("abc");
+            Assert.That(await DateInput.IsBadInputAsync(page, "#OrderDateFrom"), Is.True, "入力途中のまま");
         }
 
         [Test, Basis("DEC-CMN-05"), Basis("DEC-ORD-09")]
         public async Task 検索_終了の形式違反と両方の違反()
         {
             await OpenAsync();
-            // (1) 終了だけ
-            await FillAsync("#OrderDateTo", "2198-01-05");
+            // (1) 終了だけ（入力途中の値）
+            await DateInput.TypePartialAsync(page, "#OrderDateTo");
             await SearchAsync();
             await Expect(Loc("#OrderDateToError")).ToHaveTextAsync(MsgFormat);
             await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(Empty);
             await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
 
-            // (2) 開始も違反
-            await FillAsync("#OrderDateFrom", "2198/1/5");
+            // (2) 開始も違反（入力途中の値）
+            await DateInput.TypePartialAsync(page, "#OrderDateFrom");
             await SearchAsync();
             await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);
             await Expect(Loc("#OrderDateToError")).ToHaveTextAsync(MsgFormat);
@@ -365,8 +365,8 @@ namespace MVC_Sample.E2ETests
         public async Task 検索_開始が終了より後は共通メッセージ領域()
         {
             await OpenAsync();
-            await FillAsync("#OrderDateFrom", "2198/03/11");
-            await FillAsync("#OrderDateTo", "2198/03/10");
+            await FillAsync("#OrderDateFrom", "2198-03-11");
+            await FillAsync("#OrderDateTo", "2198-03-10");
             await SearchAsync();
 
             await Expect(Loc("#messageArea")).ToHaveTextAsync(MsgRelation);
@@ -374,8 +374,8 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Info);
             await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(Empty);
             await Expect(Loc("#OrderDateToError")).ToHaveTextAsync(Empty);
-            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198/03/11");
-            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198/03/10");
+            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198-03-11");
+            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198-03-10");
         }
 
         /// <summary>違反を入れて検索し、違反の表示が出るまで待つ（画面が更新される前に確かめないため）</summary>
@@ -383,14 +383,14 @@ namespace MVC_Sample.E2ETests
         {
             if (kind == "format")
             {
-                await FillAsync("#OrderDateFrom", "abc");
+                await DateInput.TypePartialAsync(page, "#OrderDateFrom");   // 入力途中の値
                 await SearchAsync();
                 await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);
             }
             else
             {
-                await FillAsync("#OrderDateFrom", "2198/03/11");
-                await FillAsync("#OrderDateTo", "2198/03/10");
+                await FillAsync("#OrderDateFrom", "2198-03-11");
+                await FillAsync("#OrderDateTo", "2198-03-10");
                 await SearchAsync();
                 await Expect(Loc("#messageArea")).ToHaveTextAsync(MsgRelation);
             }
@@ -416,12 +416,12 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#CustomerID")).ToHaveValueAsync(k);
             if (kind == "format")
             {
-                await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("abc");
+                Assert.That(await DateInput.IsBadInputAsync(page, "#OrderDateFrom"), Is.True, "入力途中のまま");
             }
             else
             {
-                await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198/03/11");
-                await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198/03/10");
+                await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198-03-11");
+                await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198-03-10");
             }
         }
 
@@ -847,7 +847,7 @@ namespace MVC_Sample.E2ETests
             await SortAsync("OrderDate");
             await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());
 
-            await FillAsync("#OrderDateFrom", "abc");
+            await DateInput.TypePartialAsync(page, "#OrderDateFrom");   // 入力途中の値
             await SearchAsync();
 
             await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);
@@ -876,6 +876,156 @@ namespace MVC_Sample.E2ETests
             await Expect(Rows).ToHaveCountAsync(0);
             await Expect(Loc("#totalCount")).ToHaveTextAsync("全 0 件");
             await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 1 ページ");
+        }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.2。
+
+        [Test, Basis("規約：日付の入力（cmn-framework.md「画面共通」）")]
+        public async Task 一覧_日付の入力欄はdate型()
+        {
+            await OpenAsync();
+
+            await Expect(Loc("#OrderDateFrom")).ToHaveAttributeAsync("type", "date");
+            await Expect(Loc("#OrderDateTo")).ToHaveAttributeAsync("type", "date");
+        }
+
+        [Test, Basis("規約：日付の入力（変換は yyyy-MM-dd に厳密に合う値だけ。1.1）"), Basis("DEC-ORD-09"), Basis("VAL-DATE")]
+        public async Task 検索_5桁の年の日付は形式の違反として扱う()
+        {
+            string k = data.NewCustomer('K');
+            data.NewOrdersSequence(k, 2, Start2198);
+            await OpenAndSearchAsync(k);
+            await Expect(Rows).ToHaveCountAsync(2);
+
+            // 5 桁の年。FillAsync が受け付けなければ、値を直接設定して input・change を発火する
+            await Expect(Loc("#OrderDateFrom")).ToBeVisibleAsync();
+            try { await page.FillAsync("#OrderDateFrom", "12345-01-02"); }
+            catch (PlaywrightException)
+            {
+                await page.EvalOnSelectorAsync("#OrderDateFrom",
+                    "e => { e.value = '12345-01-02'; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }");
+            }
+            Assert.That(await page.InputValueAsync("#OrderDateFrom"), Is.EqualTo("12345-01-02"), "前提：5 桁の年が値になっている");
+
+            await SearchAsync();
+
+            await Expect(Loc("#OrderDateFromError")).ToHaveTextAsync(MsgFormat);   // 変換されずに B層が形式の違反にする
+            await Expect(Loc("#OrderDateToError")).ToHaveTextAsync(Empty);
+            await Expect(Rows).ToHaveCountAsync(2);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 2 件");
+        }
+
+        // ================================================================ ページ番号の入力（DEC-CMN-08）
+
+        private async Task EnterPageNoAsync(string text)
+        {
+            await Expect(Loc("#pageNo")).ToBeVisibleAsync();
+            await page.FillAsync("#pageNo", text);
+            await page.PressAsync("#pageNo", "Enter");
+        }
+
+        [Test, Basis("DEC-CMN-08")]
+        public async Task ページ番号_今のページ番号を出し先頭_前_番号_次_末尾の順に並ぶ()
+        {
+            string k = data.NewCustomer('K');
+            data.NewOrdersSequence(k, 45, Start2198);
+            await OpenAndSearchAsync(k);
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+
+            await Expect(Loc("#pageNo")).ToHaveValueAsync("2");
+            string[] order = await page.EvalOnSelectorAllAsync<string[]>(
+                "#btnPageFirst, #btnPagePrev, #pageNo, #btnPageNext, #btnPageLast", "els => els.map(e => e.id)");
+            Assert.That(order, Is.EqualTo(new[] { "btnPageFirst", "btnPagePrev", "pageNo", "btnPageNext", "btnPageLast" }), "DOM の並び");
+            await ExpectPagerAsync(true, true, true, true);
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+        }
+
+        [TestCase("3", "3 / 3 ページ", 5, 5)]
+        [TestCase("2", "2 / 3 ページ", 20, 25)]
+        [Basis("DEC-CMN-08"), Basis("EV-ORD-104")]
+        public async Task ページ番号_入力してEnterでそのページへ移る(string input, string pageInfo, int rowCount, int topI)
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+            await OpenAndSearchAsync(k);
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("1 / 3 ページ");
+
+            await EnterPageNoAsync(input);
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync(pageInfo);
+            await ExpectListAsync(Range(ids, topI, topI - rowCount + 1));
+            await Expect(Loc("#pageNo")).ToHaveValueAsync(input);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+        }
+
+        [TestCase("99", "3 / 3 ページ", "3")]
+        [TestCase("0", "1 / 3 ページ", "1")]
+        [TestCase("-5", "1 / 3 ページ", "1")]
+        [TestCase("99999999999", "3 / 3 ページ", "3")]
+        [TestCase("-99999999999", "1 / 3 ページ", "1")]
+        [Basis("DEC-CMN-08"), Basis("DEC-ORD-06")]
+        public async Task ページ番号_範囲外は先頭か最終ページに詰める(string input, string pageInfo, string pageNo)
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+            await OpenAndSearchAsync(k);
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+
+            await EnterPageNoAsync(input);
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync(pageInfo);
+            if (pageInfo.StartsWith("3")) await ExpectListAsync(Range(ids, 5, 1));
+            else await ExpectListAsync(Range(ids, 45, 26));
+            await Expect(Loc("#pageNo")).ToHaveValueAsync(pageNo);
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+        }
+
+        [TestCase("abc")]
+        [TestCase("1.5")]
+        [TestCase("")]
+        [Basis("DEC-CMN-08")]
+        public async Task ページ番号_整数でない値は移らず今のページ番号に戻る(string input)
+        {
+            string k = data.NewCustomer('K');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+            await OpenAndSearchAsync(k);
+            await ClickAsync("#btnPageNext");
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+
+            await EnterPageNoAsync(input);
+            await SettleAsync();
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+            await ExpectListAsync(Range(ids, 25, 6));
+            await Expect(Loc("#pageNo")).ToHaveValueAsync("2");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
+        }
+
+        [Test, Basis("DEC-CMN-08"), Basis("EV-ORD-104"), Basis("DEC-ORD-04")]
+        public async Task ページ番号_入力欄だけ変えても最後に検索した条件と並びで移る()
+        {
+            string k = data.NewCustomer('K');
+            string l = data.NewCustomer('L');
+            List<int> ids = data.NewOrdersSequence(k, 45, Start2198);
+            data.NewOrdersSequence(l, 1, Start2198);
+            await OpenAndSearchAsync(k);
+            await SortAsync("OrderDate");   // 昇順
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[0].ToString());
+            await SelectAsync("#CustomerID", l);   // 検索はしない
+
+            await EnterPageNoAsync("2");
+
+            await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 3 ページ");
+            await Expect(Rows).ToHaveCountAsync(20);
+            await Expect(Cell(0, 0)).ToHaveTextAsync(ids[20].ToString());   // i = 21（昇順の 2 ページ目）
+            for (int i = 0; i < 20; i++)
+                await Expect(Cell(i, 1)).ToHaveTextAsync(data.CustomerNames[k]);
+            await Expect(Loc("#totalCount")).ToHaveTextAsync("全 45 件");
         }
     }
 }

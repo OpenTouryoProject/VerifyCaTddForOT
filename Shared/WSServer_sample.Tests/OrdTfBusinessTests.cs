@@ -1000,10 +1000,17 @@ namespace WSServer_sample.Tests
             return Call("OrdTfDelete", pv => { pv.OrderID = orderId; pv.RowVersion = rowVersion; });
         }
 
-        /// <summary>日付の指定：null、"T"（今日）、"T-1"（昨日）、"yyyy/MM/dd"</summary>
+        /// <summary>日付の指定：null、"T"（今日）、"T-1"（昨日）、"yyyy/MM/dd"。後ろに " HH:mm" を付けると時刻付き（"T 15:30"・"2001/01/01 15:30"）</summary>
         private static DateTime? Day(string s)
         {
             if (s == null) return null;
+            int sp = s.IndexOf(" ");
+            if (sp > 0)
+            {
+                DateTime day = Day(s.Substring(0, sp)).Value;
+                TimeSpan t = TimeSpan.ParseExact(s.Substring(sp + 1), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture);
+                return day + t;
+            }
             if (s == "T") return DateTime.Today;
             if (s == "T-1") return DateTime.Today.AddDays(-1);
             return DateTime.ParseExact(s, "yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -1113,6 +1120,11 @@ namespace WSServer_sample.Tests
         [TestCase("2001/01/01", "2001/01/01", "出荷済")]
         [TestCase("2001/01/01", "2001/01/02", "納期遅延")]
         [TestCase(null, "2001/01/01", "出荷済")]
+        [TestCase("2001/01/01 00:00", "2001/01/01 15:30", "出荷済")]
+        [TestCase("2001/01/01 15:30", "2001/01/01 10:00", "出荷済")]
+        [TestCase("2001/01/01 15:30", "2001/01/02 00:00", "納期遅延")]
+        [TestCase("T 15:30", null, "未出荷")]
+        [TestCase("T-1 15:30", null, "納期遅延")]
         [Basis("EV-ORD-201"), Basis("ORD-T7"), Basis("ORD-T2"), Basis("DEC-ORD-27")]
         public void OrdTfDetail_状況の判定(string required, string shipped, string expected)
         {
@@ -1297,8 +1309,8 @@ namespace WSServer_sample.Tests
             Assert.That(rv.Lines[0].UnitsInStock, Is.Null);
         }
 
-        [Test, Basis("EV-ORD-201"), Basis("DEC-ORD-24"), Basis("共通仕様 6 節（DB は妥当性を保証しない）")]
-        public void OrdTfDetail_商品マスタに無い明細は含めない()
+        [Test, Basis("EV-ORD-201"), Basis("DEC-ORD-24"), Basis("DEC-ORD-73"), Basis("共通仕様 6 節（DB は妥当性を保証しない）")]
+        public void OrdTfDetail_商品マスタに無い明細も含める()
         {
             int exists = data.NewProduct(mark: 'A');
             int gone = data.NewProduct(mark: 'M');
@@ -1310,10 +1322,20 @@ namespace WSServer_sample.Tests
             OrdTfReturnValue rv = Detail(o);
 
             Assert.That(rv.ErrorFlag, Is.False);
-            Assert.That(rv.Lines.Count, Is.EqualTo(1));
-            Assert.That(rv.Lines[0].ProductName, Is.EqualTo(data.ProductNames[exists]));
-            Assert.That(rv.Subtotal, Is.EqualTo(20.00m));
-            Assert.That(rv.Total, Is.EqualTo(25.00m));
+            Assert.That(rv.Lines.Count, Is.EqualTo(2), "商品マスタに無い明細も出す");
+            Assert.That(rv.Lines[0].ProductName, Is.EqualTo(data.ProductNames[exists]), "存在する商品の行が先");
+            Assert.That(rv.Lines[0].MissingProduct, Is.False);
+            OrdTfDetailLine z = rv.Lines[1];
+            Assert.That(z.ProductName, Is.EqualTo("（商品マスタに無い：ID " + gone + "）"));
+            Assert.That(z.UnitPrice, Is.EqualTo(100.00m));
+            Assert.That(z.Discount, Is.EqualTo(0m));
+            Assert.That(z.Price, Is.EqualTo(100.00m));
+            Assert.That(z.Quantity, Is.EqualTo(1));
+            Assert.That(z.UnitsInStock, Is.Null);
+            Assert.That(z.Amount, Is.EqualTo(100.00m));
+            Assert.That(z.MissingProduct, Is.True);
+            Assert.That(rv.Subtotal, Is.EqualTo(120.00m));
+            Assert.That(rv.Total, Is.EqualTo(125.00m));
         }
 
         [Test, Basis("DEC-ORD-25"), Basis("SC-ORD-02-I17"), Basis("共通仕様 3 節（金額の算出式）")]
@@ -3248,7 +3270,12 @@ namespace WSServer_sample.Tests
         [TestCase(null, "2001/01/01", "出荷済")]
         [TestCase("T", null, "未出荷")]
         [TestCase("T-1", null, "納期遅延")]
-        [Basis("EV-ORD-401"), Basis("状況の判定"), Basis("ORD-T7"), Basis("SC-ORD-04-I03")]
+        [TestCase("2001/01/01 00:00", "2001/01/01 15:30", "出荷済")]
+        [TestCase("2001/01/01 15:30", "2001/01/01 10:00", "出荷済")]
+        [TestCase("2001/01/01 15:30", "2001/01/02 00:00", "納期遅延")]
+        [TestCase("T 15:30", null, "未出荷")]
+        [TestCase("T-1 15:30", null, "納期遅延")]
+        [Basis("EV-ORD-401"), Basis("状況の判定"), Basis("ORD-T7"), Basis("SC-ORD-04-I03"), Basis("DEC-ORD-27")]
         public void OrdTfShipInit_状況の判定(string required, string shipped, string expected)
         {
             int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: Day(required), shippedDate: Day(shipped));
@@ -3405,8 +3432,8 @@ namespace WSServer_sample.Tests
             Assert.That(rv.StockLines[0].UnitsInStock, Is.Null);
         }
 
-        [Test, Basis("EV-ORD-401")]
-        public void OrdTfShipInit_商品マスタに無い明細は内訳に含めない()
+        [Test, Basis("EV-ORD-401"), Basis("DEC-ORD-77"), Basis("DEC-ORD-73")]
+        public void OrdTfShipInit_商品マスタに無い明細は内訳に出す()
         {
             ShipCtx c = NewShipCtx();
             int o = NewShipOrder(c, false);
@@ -3417,7 +3444,13 @@ namespace WSServer_sample.Tests
             OrdTfReturnValue rv = ShipInit(o);
 
             Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
-            Assert.That(rv.StockLines.Count, Is.EqualTo(2));
+            Assert.That(rv.StockLines.Count, Is.EqualTo(3), "P1・P2・Z");
+            OrdTfShipStockLine zl = StockLineOf(rv, "（商品マスタに無い：ID " + z + "）");
+            Assert.That(zl.Quantity, Is.EqualTo(5));
+            Assert.That(zl.UnitsInStock, Is.Null);
+            Assert.That(zl.Short, Is.False, "強調しない");
+            Assert.That(StockLineOf(rv, data.ProductNames[c.P1]).Quantity, Is.EqualTo(3));
+            Assert.That(StockLineOf(rv, data.ProductNames[c.P2]).Quantity, Is.EqualTo(2));
         }
 
         [Test, Basis("EV-ORD-401"), Basis("SC-ORD-04-I05"), Basis("SC-ORD-04-I06"), Basis("SC-ORD-04-I07")]
@@ -3632,7 +3665,7 @@ namespace WSServer_sample.Tests
             Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(7), "o2 の数量を引かない");
         }
 
-        [Test, Basis("EV-ORD-402"), Basis("DEC-ORD-24")]
+        [Test, Basis("EV-ORD-402"), Basis("DEC-ORD-77")]
         public void OrdTfShipSave_商品マスタに無い明細があっても確定できる()
         {
             ShipCtx c = NewShipCtx();
@@ -4536,8 +4569,8 @@ namespace WSServer_sample.Tests
             Assert.That(t3, Is.EqualTo(""), "o3（Ship* がすべて NULL）は空文字");
         }
 
-        [Test, Basis("EV-ORD-501"), Basis("DEC-ORD-66")]
-        public void OrdTfReport_商品マスタに無い明細は含めない()
+        [Test, Basis("EV-ORD-501"), Basis("DEC-ORD-66"), Basis("DEC-ORD-74")]
+        public void OrdTfReport_商品マスタに無い明細も含める()
         {
             int exists = data.NewProduct(mark: 'A');
             int gone = data.NewProduct(mark: 'M');
@@ -4549,10 +4582,15 @@ namespace WSServer_sample.Tests
             OrdTfReturnValue rv = Report(o);
 
             Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
-            Assert.That(rv.Lines.Count, Is.EqualTo(1));
+            Assert.That(rv.Lines.Count, Is.EqualTo(2), "商品マスタに無い明細も出す");
             Assert.That(rv.Lines[0].ProductName, Is.EqualTo(data.ProductNames[exists]));
-            Assert.That(rv.Subtotal, Is.EqualTo(20.00m));
-            Assert.That(rv.Total, Is.EqualTo(25.00m));
+            OrdTfDetailLine z = rv.Lines[1];
+            Assert.That(z.ProductName, Is.EqualTo(gone.ToString()), "商品名の欄は商品 ID だけ（注記を付けない）");
+            Assert.That(z.UnitPrice, Is.EqualTo(100.00m));
+            Assert.That(z.Quantity, Is.EqualTo(1));
+            Assert.That(z.Amount, Is.EqualTo(100.00m));
+            Assert.That(rv.Subtotal, Is.EqualTo(120.00m));
+            Assert.That(rv.Total, Is.EqualTo(125.00m));
         }
 
         [Test, Basis("SC-ORD-05-I10"), Basis("DEC-ORD-67")]
@@ -4570,6 +4608,414 @@ namespace WSServer_sample.Tests
             Assert.That(rv.Lines.Count, Is.EqualTo(2));
             Assert.That(rv.Lines[0].ProductName, Is.EqualTo(data.ProductNames[p]));
             Assert.That(rv.Lines[1].ProductName, Is.EqualTo(data.ProductNames[q]), "廃番の商品名に「（廃番）」を付記しない");
+        }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.1。
+
+        private static string MissingName(int productId)
+        {
+            return "（商品マスタに無い：ID " + productId + "）";
+        }
+
+        /// <summary>
+        /// 並びのケース用の商品：Za・Zb（消す商品。Za &lt; Zb）を先に作り、次に M、A の順に作る
+        /// （ProductID の順と名前の順を逆にする）。Za・Zb は呼び出し側が明細を入れた後に消す
+        /// </summary>
+        private void NewSortProducts(out int za, out int zb, out int pm, out int pa)
+        {
+            za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            pm = data.NewProduct(mark: 'M', unitsInStock: 50);
+            pa = data.NewProduct(mark: 'A', unitsInStock: 50);
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("DEC-ORD-75")]
+        public void OrdTfDetail_商品マスタに無い明細は商品名のある明細の後に商品IDの昇順()
+        {
+            int za, zb, pm, pa;
+            NewSortProducts(out za, out zb, out pm, out pa);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), freight: 0m);
+            data.NewDetail(o, pm, 10.00m, 1, 0f);   // M・Zb・A・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 1, 0f);
+            data.NewDetail(o, pa, 30.00m, 1, 0f);
+            data.NewDetail(o, za, 40.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            OrdTfReturnValue rv = Detail(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.Lines.Select(l => l.ProductName).ToArray(), Is.EqualTo(new[]
+            {
+                data.ProductNames[pa], data.ProductNames[pm], MissingName(za), MissingName(zb)
+            }));
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("EV-ORD-501"), Basis("EV-ORD-101"), Basis("DEC-ORD-24"), Basis("DEC-ORD-66"),
+            Basis("共通仕様 3 節（明細金額は小数第 3 位を四捨五入し、その値を合算）")]
+        public void OrdTfDetail_商品マスタに無い明細の金額は詳細_帳票_一覧の合計で同じになり丸めも同じ()
+        {
+            string k = data.NewCustomer('A');
+            int exists = data.NewProduct(mark: 'A');
+            int gone = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(customerId: k, orderDate: D(2199, 3, 1), freight: 10.00m);
+            data.NewDetail(o, exists, 20.00m, 1, 0f);
+            data.NewDetail(o, gone, 0.50m, 3, 0.15f);
+            data.DeleteProduct(gone);
+            decimal goneAmount = Math.Round(0.50m * (1m - 0.15m) * 3, 2, MidpointRounding.AwayFromZero);
+            decimal subtotal = 20.00m + goneAmount;
+            decimal total = subtotal + 10.00m;
+
+            OrdTfReturnValue detail = Detail(o);
+            OrdTfReturnValue report = Report(o);
+            OrdTfReturnValue list = SearchCustomer(k);
+
+            Assert.That(goneAmount, Is.EqualTo(1.28m), "テストの期待値の確認（0.425 × 3 = 1.275 の四捨五入）");
+            Assert.That(list.Rows.Single().TotalAmount, Is.EqualTo(total), "受注一覧の合計金額");
+            Assert.That(detail.ErrorFlag, Is.False, detail.ErrorMessage);
+            Assert.That(detail.Lines.Count(l => l.MissingProduct), Is.EqualTo(1), "商品マスタに無い明細を出す");
+            Assert.That(detail.Lines.Single(l => l.MissingProduct).Amount, Is.EqualTo(goneAmount));
+            Assert.That(detail.Subtotal, Is.EqualTo(subtotal));
+            Assert.That(detail.Total, Is.EqualTo(total));
+            Assert.That(report.ErrorFlag, Is.False, report.ErrorMessage);
+            Assert.That(report.Subtotal, Is.EqualTo(subtotal));
+            Assert.That(report.Total, Is.EqualTo(total));
+        }
+
+        [TestCase("2001/01/01")]
+        [TestCase("T")]
+        [Basis("EV-ORD-203"), Basis("ERR-BIZ"), Basis("DEC-ORD-78")]
+        public void OrdTfDelete_出荷済の受注は削除できない(string shipped)
+        {
+            int p = data.NewProduct(mark: 'A');
+            int q = data.NewProduct(mark: 'M');
+            int o = data.NewOrder(orderDate: D(2001, 1, 1), shippedDate: Day(shipped), freight: 5.00m);
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+            data.NewDetail(o, q, 20.00m, 2, 0f);
+            int rowVersion = TestData.GetRowVersion(o);
+            Assert.That(rowVersion, Is.EqualTo(1));
+            OrdTfReturnValue before = Detail(o);
+
+            OrdTfReturnValue rv = Delete(o, rowVersion);
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorMessage, Is.EqualTo("出荷済の受注は削除できません。"));
+            Assert.That(TestData.CountOrders(o), Is.EqualTo(1));
+            Assert.That(TestData.CountDetails(o), Is.EqualTo(2), "明細も消えない（ロールバック）");
+            Assert.That(TestData.GetRowVersion(o), Is.EqualTo(1));
+            OrdTfReturnValue after = Detail(o);
+            Assert.That(after.Lines.Count, Is.EqualTo(before.Lines.Count));
+            Assert.That(after.Freight, Is.EqualTo(before.Freight));
+            Assert.That(after.Total, Is.EqualTo(before.Total));
+        }
+
+        [Test, Basis("EV-ORD-301"), Basis("DEC-ORD-76"), Basis("DEC-ORD-24"), Basis("DEC-ORD-73"), Basis("DEC-ORD-75")]
+        public void OrdTfEditInit_商品マスタに無い明細も明細に出して小計に含め並びは商品IDの昇順()
+        {
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int pa = data.NewProduct(mark: 'A', unitsInStock: 50);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 4, 1), freight: 5.00m);
+            data.NewDetail(o, pa, 10.00m, 2, 0f);   // A・Zb・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 3, 0f);
+            data.NewDetail(o, za, 100.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            OrdTfReturnValue rv = EditInit("edit", o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.EditLines.Count, Is.EqualTo(3));
+            Assert.That(rv.EditLines.Select(l => l.ProductID).ToArray(), Is.EqualTo(new[] { pa, za, zb }));
+            Assert.That(rv.EditLines[0].MissingProduct, Is.False);
+            OrdTfEditLine lza = rv.EditLines[1], lzb = rv.EditLines[2];
+            Assert.That(lza.MissingProduct, Is.True);
+            Assert.That(lzb.MissingProduct, Is.True);
+            Assert.That(lza.Discontinued, Is.False);
+            Assert.That(lza.ProductName, Is.EqualTo(MissingName(za)));
+            Assert.That(lzb.ProductName, Is.EqualTo(MissingName(zb)));
+            Assert.That(lza.UnitsInStock, Is.Null);
+            Assert.That(lza.UnitPrice, Is.EqualTo(100.00m));
+            Assert.That(lza.Discount, Is.EqualTo(0m));
+            Assert.That(lza.Quantity, Is.EqualTo(1));
+            Assert.That(lza.RowVersion, Is.EqualTo(1));
+            Assert.That(lzb.UnitPrice, Is.EqualTo(20.00m));
+            Assert.That(lzb.Quantity, Is.EqualTo(3));
+            Assert.That(rv.Subtotal, Is.EqualTo(180.00m), "20 + 100 + 60");
+            Assert.That(rv.Total, Is.EqualTo(185.00m));
+            Assert.That(rv.ProductOptions.Any(p => p.Value == za.ToString() || p.Value == zb.ToString()), Is.False);
+        }
+
+        /// <summary>編集の保存の前提：o（明細 A と、消した商品 Z）。Z の行の Ln を返す</summary>
+        private int NewEditOrderWithMissing(Ctx c, out Ln a, out Ln lz, out int z)
+        {
+            a = L(c.P1, 100.00m, 0.15f, 12);
+            z = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            lz = L(z, 50.00m, 0f, 2);
+            int o = NewEditOrder(c, a, lz);
+            data.DeleteProduct(z);
+            return o;
+        }
+
+        private static OrdTfSaveLine WithQty(Ln l, string qty)
+        {
+            OrdTfSaveLine s = Same(l);
+            s.QuantityText = qty;
+            return s;
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        [Basis("EV-ORD-308"), Basis("VAL-EXISTS"), Basis("DEC-ORD-76"), Basis("OD-T6")]
+        public void OrdTfSave_編集で商品マスタに無い明細を残して保存できる(bool changeZ)
+        {
+            Ctx c = NewCtx();
+            Ln a, lz; int z;
+            int o = NewEditOrderWithMissing(c, out a, out lz, out z);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a, lz }, pv =>
+                pv.SaveLines = new List<OrdTfSaveLine> { WithQty(a, "13"), changeZ ? WithQty(lz, "5") : Same(lz) });
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage + string.Join(",", rv.ErrorFields));
+            Assert.That(rv.ErrorFields, Is.Empty);
+            List<TestData.DetailRow> ds = TestData.GetDetails(o);
+            Assert.That(ds.Count, Is.EqualTo(2));
+            TestData.DetailRow da = ds.Single(d => d.ProductID == a.P);
+            TestData.DetailRow dz = ds.Single(d => d.ProductID == z);
+            Assert.That(da.Quantity, Is.EqualTo(13));
+            Assert.That(da.RowVersion, Is.EqualTo(2));
+            if (changeZ)
+            {
+                Assert.That(dz.Quantity, Is.EqualTo(5));
+                Assert.That(dz.RowVersion, Is.EqualTo(2));
+            }
+            else
+            {
+                Assert.That(dz.Quantity, Is.EqualTo(2));
+                Assert.That(dz.RowVersion, Is.EqualTo(1), "変えない行に触れない");
+            }
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(2));
+        }
+
+        [Test, Basis("EV-ORD-308"), Basis("DEC-ORD-76")]
+        public void OrdTfSave_編集で商品マスタに無い明細を削除できる()
+        {
+            Ctx c = NewCtx();
+            Ln a, lz; int z;
+            int o = NewEditOrderWithMissing(c, out a, out lz, out z);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a, lz }, pv =>
+            {
+                pv.SaveLines = new List<OrdTfSaveLine> { Same(a) };
+                pv.DeletedProductIDs = new List<int> { z };
+            });
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage + string.Join(",", rv.ErrorFields));
+            List<TestData.DetailRow> ds = TestData.GetDetails(o);
+            Assert.That(ds.Select(d => d.ProductID).ToArray(), Is.EqualTo(new[] { a.P }));
+        }
+
+        [Test, Basis("EV-ORD-308"), Basis("DEC-ORD-76")]
+        public void OrdTfSave_編集で商品マスタに無い明細の行の商品を存在する商品に付け替えられる()
+        {
+            Ctx c = NewCtx();
+            Ln a, lz; int z;
+            int o = NewEditOrderWithMissing(c, out a, out lz, out z);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a, lz }, pv =>
+            {
+                OrdTfSaveLine moved = Same(lz);
+                moved.ProductIDText = c.P2.ToString(Inv);   // OriginalProductID = Z のまま
+                moved.UnitPriceText = "15.00";
+                moved.QuantityText = "1";
+                pv.SaveLines = new List<OrdTfSaveLine> { Same(a), moved };
+            });
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage + string.Join(",", rv.ErrorFields));
+            List<TestData.DetailRow> ds = TestData.GetDetails(o);
+            Assert.That(ds.Select(d => d.ProductID).OrderBy(x => x).ToArray(), Is.EqualTo(new[] { a.P, c.P2 }.OrderBy(x => x).ToArray()));
+            TestData.DetailRow n = ds.Single(d => d.ProductID == c.P2);
+            Assert.That(n.UnitPrice, Is.EqualTo(15.00m));
+            Assert.That(n.Quantity, Is.EqualTo(1));
+            Assert.That(n.RowVersion, Is.EqualTo(1));
+        }
+
+        [Test, Basis("VAL-EXISTS"), Basis("EV-ORD-308"), Basis("DEC-ORD-76")]
+        public void OrdTfSave_編集で商品マスタに無い明細の行の商品を存在しない別の商品に変えるとVAL_EXISTS()
+        {
+            Ctx c = NewCtx();
+            Ln a, lz; int z;
+            int o = NewEditOrderWithMissing(c, out a, out lz, out z);
+            int z2 = data.NewProduct(mark: 'Z');
+            data.DeleteProduct(z2);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a, lz }, pv =>
+            {
+                OrdTfSaveLine moved = Same(lz);
+                moved.ProductIDText = z2.ToString(Inv);   // OriginalProductID = Z のまま
+                pv.SaveLines = new List<OrdTfSaveLine> { Same(a), moved };
+            });
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Lines[1].ProductID" }));
+            Assert.That(rv.ErrorMessages, Is.Empty);
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(1));
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).OrderBy(x => x).ToArray(),
+                Is.EqualTo(new[] { a.P, z }.OrderBy(x => x).ToArray()));
+        }
+
+        [Test, Basis("VAL-EXISTS"), Basis("EV-ORD-308"), Basis("DEC-ORD-76")]
+        public void OrdTfSave_編集で新しい行に商品マスタに無い商品を指定するとVAL_EXISTS()
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);
+            int z = data.NewProduct(mark: 'Z');
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv =>
+                pv.SaveLines = new List<OrdTfSaveLine> { Same(a), NewLine(z, "10.00", "0", "1") });   // OriginalProductID = null
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Lines[1].ProductID" }));
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(1));
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).ToArray(), Is.EqualTo(new[] { a.P }));
+        }
+
+        [Test, Basis("VAL-EXISTS"), Basis("EV-ORD-308"), Basis("DEC-ORD-76"), Basis("DEC-ORD-49")]
+        public void OrdTfSave_編集で読み込み時の行だと名乗ってもDBに無ければ商品マスタに無い商品はVAL_EXISTS()
+        {
+            Ctx c = NewCtx();
+            Ln a = L(c.P1, 100.00m, 0.15f, 12);
+            int o = NewEditOrder(c, a);   // o には Z の明細が無い
+            int z = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            Ln lz = L(z, 50.00m, 0f, 2);
+            int o2 = NewEditOrder(c, lz);   // 別の受注 o2 に Z の明細がある（ProductID だけで引く実装を除く）
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = SaveEdit(c, o, 1, new[] { a }, pv =>
+                pv.SaveLines = new List<OrdTfSaveLine> { Same(a), Same(lz) });   // OriginalProductID = Z を名乗る
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Lines[1].ProductID" }));
+            Assert.That(TestData.GetOrder(o).RowVersion, Is.EqualTo(1));
+            Assert.That(TestData.GetDetails(o).Select(d => d.ProductID).ToArray(), Is.EqualTo(new[] { a.P }));
+            Assert.That(TestData.GetDetails(o2).Select(d => d.ProductID).ToArray(), Is.EqualTo(new[] { z }));
+        }
+
+        [Test, Basis("VAL-EXISTS"), Basis("EV-ORD-308"), Basis("DEC-ORD-76")]
+        public void OrdTfSave_登録でOriginalProductIDを付けても存在しない商品はVAL_EXISTS()
+        {
+            Ctx c = NewCtx();
+            int z = data.NewProduct(mark: 'Z');
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = SaveV(c, pv =>
+            {
+                OrdTfSaveLine l = NewLine(z, "10.00", "0", "1");
+                l.OriginalProductID = z;
+                l.OriginalUnitPrice = 10.00m;
+                l.OriginalDiscount = 0m;
+                l.OriginalQuantity = 1;
+                pv.SaveLines = new List<OrdTfSaveLine> { l };
+            });
+
+            Assert.That(rv.ErrorFlag, Is.True);
+            Assert.That(rv.ErrorFields, Is.EquivalentTo(new[] { "Lines[0].ProductID" }));
+            AssertNothingSaved(c, rv);
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("DEC-ORD-75"), Basis("DEC-ORD-77")]
+        public void OrdTfShipInit_内訳は商品名の昇順で商品マスタに無い明細は最後に商品IDの昇順()
+        {
+            int za, zb, pm, pa;
+            NewSortProducts(out za, out zb, out pm, out pa);
+            int o = data.NewOrder(orderDate: D(2199, 3, 1), requiredDate: D(2199, 12, 31), freight: 0m);
+            data.NewDetail(o, pm, 10.00m, 1, 0f);   // M・Zb・A・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 2, 0f);
+            data.NewDetail(o, pa, 30.00m, 1, 0f);
+            data.NewDetail(o, za, 40.00m, 3, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            OrdTfReturnValue rv = ShipInit(o);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            Assert.That(rv.StockLines.Select(l => l.ProductName).ToArray(), Is.EqualTo(new[]
+            {
+                data.ProductNames[pa], data.ProductNames[pm], MissingName(za), MissingName(zb)
+            }));
+            Assert.That(rv.StockLines[2].UnitsInStock, Is.Null);
+            Assert.That(rv.StockLines[2].Short, Is.False);
+            Assert.That(rv.StockLines[3].UnitsInStock, Is.Null);
+            Assert.That(rv.StockLines[3].Short, Is.False);
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("DEC-ORD-77")]
+        public void OrdTfShipCancel_商品マスタに無い明細があっても取り消せ在庫は変えない()
+        {
+            ShipCtx c = NewShipCtx(7, 5);
+            int o = NewShipOrder(c, true);
+            int z = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            data.NewDetail(o, z, 10.00m, 4, 0f);
+            data.DeleteProduct(z);
+
+            OrdTfReturnValue rv = ShipCancel(o, 1);
+
+            Assert.That(rv.ErrorFlag, Is.False, rv.ErrorMessage);
+            TestData.OrderRow row = TestData.GetOrder(o);
+            Assert.That(row.ShippedDate, Is.Null);
+            Assert.That(row.RowVersion, Is.EqualTo(2));
+            Assert.That(TestData.GetUnitsInStock(c.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(c.P2), Is.EqualTo(7));
+        }
+
+        /// <summary>状況のデータ（日付の単位で比べる）：i〜m。顧客 A に入れる</summary>
+        private Dictionary<char, int> DateUnitStatusData(string customerId)
+        {
+            Dictionary<char, int> m = new Dictionary<char, int>();
+            Func<string, string, int> add = (req, shp) =>
+                data.NewOrder(customerId: customerId, orderDate: D(2199, 3, 1), requiredDate: Day(req), shippedDate: Day(shp));
+            m['i'] = add("2001/01/01 00:00", "2001/01/01 15:30");
+            m['j'] = add("2001/01/01 15:30", "2001/01/02 00:00");
+            m['k'] = add("2001/01/01 15:30", "2001/01/01 10:00");
+            m['l'] = add("T 15:30", null);
+            m['m'] = add("T-1 15:30", null);
+            return m;
+        }
+
+        [Test, Basis("EV-ORD-101"), Basis("ORD-T7"), Basis("DEC-ORD-27")]
+        public void OrdTfSearch_状況の判定は日付の単位で比べる()
+        {
+            string k = data.NewCustomer('A');
+            Dictionary<char, int> m = DateUnitStatusData(k);
+
+            OrdTfReturnValue rv = SearchCustomer(k);
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Func<char, string> status = ch => rv.Rows.Single(r => r.OrderID == m[ch]).Status;
+            Assert.That(status('i'), Is.EqualTo("出荷済"));
+            Assert.That(status('j'), Is.EqualTo("納期遅延"));
+            Assert.That(status('k'), Is.EqualTo("出荷済"));
+            Assert.That(status('l'), Is.EqualTo("未出荷"));
+            Assert.That(status('m'), Is.EqualTo("納期遅延"));
+        }
+
+        [TestCase("納期遅延", "jm")]
+        [TestCase("出荷済", "ijk")]
+        [TestCase("未出荷", "lm")]
+        [Basis("EV-ORD-102"), Basis("SC-ORD-01-I05"), Basis("DEC-ORD-27")]
+        public void OrdTfSearch_出荷状況の納期遅延は日付の単位で比べる(string status, string expectedKeys)
+        {
+            string k = data.NewCustomer('A');
+            Dictionary<char, int> m = DateUnitStatusData(k);
+
+            OrdTfReturnValue rv = Search(pv => { pv.CustomerID = k; pv.ShippedStatus = status; });
+
+            Assert.That(rv.ErrorFlag, Is.False);
+            Assert.That(Ids(rv), Is.EquivalentTo(expectedKeys.Select(ch => m[ch])));
+            Assert.That(rv.TotalCount, Is.EqualTo(expectedKeys.Length), "TotalCount（OrdTfCount.xml の条件）も同じ");
         }
     }
 }

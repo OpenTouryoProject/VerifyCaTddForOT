@@ -209,6 +209,8 @@ namespace MVC_Sample.E2ETests
             // 照会モード：入力欄を置かない
             await Expect(Loc("#contents input:not([type=hidden]):not([type=submit]):not([type=button]), #contents select, #contents textarea"))
                 .ToHaveCountAsync(0);
+            // 商品マスタに無い明細が無ければ警告を出さない（DEC-ORD-73）
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
         }
 
         [Test, Basis("SC-ORD-02-I05"), Basis("DEC-ORD-18")]
@@ -226,7 +228,7 @@ namespace MVC_Sample.E2ETests
         [TestCase(null, true)]
         [TestCase("2198/03/10", false)]
         [Basis("EV-ORD-201"), Basis("ORD-T4"), Basis("SC-ORD-02-B01"), Basis("SC-ORD-02-B02"), Basis("SC-ORD-02-B06"),
-            Basis("cmn-framework.md の画面共通"), Basis("決定 4")]
+            Basis("cmn-framework.md の画面共通"), Basis("決定 4"), Basis("DEC-ORD-78")]
         public async Task 詳細_メインボタンと編集の活性(string shipped, bool editEnabled)
         {
             DateTime? shippedDate = shipped == null ? (DateTime?)null : DateTime.ParseExact(shipped, "yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -234,9 +236,10 @@ namespace MVC_Sample.E2ETests
 
             await OpenDetailAsync(o);
 
-            // メインボタンはコンテンツのフッタ部に 5 つ。削除だけ活性
+            // メインボタンはコンテンツのフッタ部に 5 つ。削除だけ活性（出荷済は非活性。DEC-ORD-78。編集と同じ条件）
             await Expect(Loc("#contents #btnMain1")).ToHaveAccessibleNameAsync("削除");
-            await Expect(Loc("#contents #btnMain1")).ToBeEnabledAsync();
+            if (editEnabled) await Expect(Loc("#contents #btnMain1")).ToBeEnabledAsync();
+            else await Expect(Loc("#contents #btnMain1")).ToBeDisabledAsync();
             for (int i = 2; i <= 5; i++)
             {
                 await Expect(Loc("#contents #btnMain" + i)).ToBeVisibleAsync();
@@ -372,8 +375,8 @@ namespace MVC_Sample.E2ETests
             await OpenListAsync();
             await SelectAsync("#CustomerID", k);
             await SelectAsync("#EmployeeID", e.ToString());
-            await FillAsync("#OrderDateFrom", "2198/01/06");
-            await FillAsync("#OrderDateTo", "2198/02/14");
+            await FillAsync("#OrderDateFrom", "2198-01-06");
+            await FillAsync("#OrderDateTo", "2198-02-14");
             await SelectAsync("#ShippedStatus", "未出荷");
             await SearchAsync();
             await ExpectPageAsync("1 / 2 ページ", "全 40 件");
@@ -389,8 +392,8 @@ namespace MVC_Sample.E2ETests
             // 戻った直後：条件・ページ・並べ替えが復元され、復元した条件で再検索される（x・y を含まない）
             await Expect(Loc("#CustomerID")).ToHaveValueAsync(k);
             await Expect(Loc("#EmployeeID")).ToHaveValueAsync(e.ToString());
-            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198/01/06");
-            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198/02/14");
+            await Expect(Loc("#OrderDateFrom")).ToHaveValueAsync("2198-01-06");
+            await Expect(Loc("#OrderDateTo")).ToHaveValueAsync("2198-02-14");
             await Expect(Loc("#ShippedStatus option:checked")).ToHaveTextAsync("未出荷");
             await ExpectPageAsync("2 / 2 ページ", "全 40 件");
             await ExpectListAsync(RangeAsc(ids, 25, 44));
@@ -624,6 +627,69 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#CustomerID")).ToHaveValueAsync(k);
             await ExpectPageAsync("2 / 2 ページ", "全 24 件");
             await ExpectListAsync(Range(ids, 4, 1));
+        }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.2。
+
+        private static readonly Regex Warning = new Regex(@"\btext-warning\b");
+
+        [Test, Basis("EV-ORD-203"), Basis("ERR-BIZ"), Basis("DEC-ORD-78"), Basis("DEC-ORD-81")]
+        public async Task 削除_表示の後に出荷されていたらERR_BIZで詳細に留まる()
+        {
+            int p = data.NewProduct();
+            int o = data.NewOrder(orderDate: new DateTime(2198, 3, 1), requiredDate: new DateTime(2198, 4, 1), freight: 5.00m);
+            data.NewDetail(o, p, 10.00m, 1, 0f);
+
+            await OpenDetailAsync(o);
+            await Expect(Loc("#btnMain1")).ToBeEnabledAsync();
+            TestData.SetShippedDate(o, new DateTime(2198, 3, 10));   // RowVersion は変えない
+            await ClickAsync("#btnMain1");   // 確認ダイアログは承認する
+
+            // 詳細のまま。出荷済の受注は削除できない
+            await Expect(Loc("#messageArea")).ToHaveTextAsync("出荷済の受注は削除できません。");
+            await Expect(Loc("#messageArea")).ToHaveClassAsync(Danger);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Info);
+            await Expect(Loc("#orderId")).ToHaveTextAsync(o.ToString());
+            await Expect(Loc("#detailList")).ToBeVisibleAsync();
+            Assert.That(TestData.CountOrders(o), Is.EqualTo(1));
+            Assert.That(TestData.CountDetails(o), Is.EqualTo(1));
+            // 詳細が最新に読み直される（DEC-ORD-81）：出荷日あり・削除と編集が非活性
+            await Expect(Loc("#shippedDate")).ToHaveTextAsync("2198/03/10");
+            await Expect(Loc("#status")).ToHaveTextAsync("出荷済");
+            await Expect(Loc("#btnMain1")).ToBeDisabledAsync();
+            await Expect(Loc("#btnEdit")).ToBeDisabledAsync();
+        }
+
+        [Test, Basis("EV-ORD-201"), Basis("DEC-ORD-24"), Basis("DEC-ORD-73"), Basis("DEC-ORD-75")]
+        public async Task 詳細_商品マスタに無い明細は付記して小計に含め警告を出す()
+        {
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int pa = data.NewProduct(mark: 'A', unitsInStock: 7);
+            int o = data.NewOrder(orderDate: new DateTime(2198, 3, 1), freight: 5.00m);
+            data.NewDetail(o, pa, 10.00m, 2, 0f);   // A・Zb・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 3, 0f);
+            data.NewDetail(o, za, 100.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            await OpenDetailAsync(o);
+
+            await Expect(DetailRows).ToHaveCountAsync(3);
+            await Expect(DetailCell(0, 0)).ToHaveTextAsync(data.ProductNames[pa]);
+            await Expect(DetailCell(0, 5)).ToHaveTextAsync("7");
+            await Expect(DetailCell(1, 0)).ToHaveTextAsync("（商品マスタに無い：ID " + za + "）");
+            await Expect(DetailCell(1, 0)).Not.ToContainTextAsync("（廃番）");
+            await Expect(DetailCell(1, 5)).ToHaveTextAsync(Empty);
+            await Expect(DetailCell(2, 0)).ToHaveTextAsync("（商品マスタに無い：ID " + zb + "）");
+            await Expect(DetailCell(2, 5)).ToHaveTextAsync(Empty);
+            await Expect(Loc("#subtotal")).ToHaveTextAsync("180.00");
+            await Expect(Loc("#total")).ToHaveTextAsync("185.00");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync("商品マスタに無い商品の明細があります。");
+            await Expect(Loc("#messageArea")).ToHaveClassAsync(Warning);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Danger);
+            await Expect(Loc("#messageArea")).Not.ToHaveClassAsync(Info);
         }
     }
 }

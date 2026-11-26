@@ -94,6 +94,8 @@ namespace MVC_Sample.E2ETests
         }
 
         private static string Today { get { return DateTime.Today.ToString("yyyy/MM/dd"); } }
+        /// <summary>日付の入力欄（type="date"）の値の形（yyyy-MM-dd）</summary>
+        private static string TodayIso { get { return DateTime.Today.ToString("yyyy-MM-dd"); } }
 
         private async Task SelectAsync(string selector, string value)
         {
@@ -336,7 +338,7 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#shipCustomerName")).ToHaveTextAsync(data.CustomerNames[e.K]);
             await Expect(Loc("#shipStatus")).ToHaveTextAsync("未出荷");
             await Expect(Loc("#shipRequiredDate")).ToHaveTextAsync("2198/12/31");
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(Today);
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(TodayIso);
             await Expect(Loc("#shipShipVia")).ToHaveValueAsync(e.S0.ToString());
             await Expect(Loc("#shipFreight")).ToHaveValueAsync(NumRe(12.5m));
             await Expect(StockRows).ToHaveCountAsync(2);
@@ -406,7 +408,7 @@ namespace MVC_Sample.E2ETests
             await OpenFromListAsync(k, o);
 
             await Expect(Loc("#shipStatus")).ToHaveTextAsync("納期遅延");
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync("2198/04/05");
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync("2198-04-05");
             await Expect(Loc("#shipShipVia")).ToHaveValueAsync(s0.ToString());
             await Expect(Loc("#shipFreight")).ToHaveValueAsync(NumRe(7.25m));
             await Expect(Loc("#shipStockList")).ToBeHiddenAsync();
@@ -437,7 +439,7 @@ namespace MVC_Sample.E2ETests
 
             await Expect(Loc("#shipOrderId")).ToHaveTextAsync(e.O.ToString());
             await Expect(Loc("#shipStatus")).ToHaveTextAsync("未出荷");
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(Today);
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(TodayIso);
             await Expect(StockRows).ToHaveCountAsync(2);
             await Expect(StockRowOf(data.ProductNames[e.P1])).Not.ToHaveClassAsync(RowDanger);
             await Expect(StockRowOf(data.ProductNames[e.P2])).ToHaveClassAsync(RowDanger);
@@ -514,7 +516,7 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs();
 
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/05/01", e.S1, "20");
+            await FillShipAsync("2198-05-01", e.S1, "20");
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -541,7 +543,7 @@ namespace MVC_Sample.E2ETests
         {
             Es e = NewEs();
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/05/01", e.S1, "20");
+            await FillShipAsync("2198-05-01", e.S1, "20");
             await ClickAsync("#shipMain1");
             await ExpectDialogClosedAsync();
             await ExpectListMessageAsync(e.O, "の出荷情報を更新しました。", Info);
@@ -560,7 +562,7 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs();
 
             await OpenFromDetailAsync(e.O);
-            await FillShipAsync("2198/05/01", e.S1, "20");
+            await FillShipAsync("2198-05-01", e.S1, "20");
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -573,21 +575,21 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#btnEdit")).ToBeDisabledAsync();
         }
 
-        [Test, Basis("EV-ORD-205"), Basis("EV-ORD-203")]
-        public async Task 確定_詳細から確定した後の削除は競合しない()
+        [Test, Basis("EV-ORD-205"), Basis("EV-ORD-203"), Basis("DEC-ORD-78")]
+        public async Task 確定_詳細から確定すると削除は非活性になる()
         {
             Es e = NewEs();
             await OpenFromDetailAsync(e.O);
-            await FillShipAsync("2198/05/01", e.S1, "20");
+            await FillShipAsync("2198-05-01", e.S1, "20");
             await ClickAsync("#shipMain1");
             await ExpectDialogClosedAsync();
             await Expect(Loc("#shippedDate")).ToHaveTextAsync("2198/05/01");
 
-            await ClickAsync("#btnMain1");
-
-            await Expect(Loc("#orderList")).ToBeVisibleAsync();
-            await ExpectListMessageAsync(e.O, "を削除しました。", Info);
-            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(0));
+            // 出荷済の受注は削除できない（DEC-ORD-78）：削除と編集が非活性
+            await Expect(Loc("#status")).ToHaveTextAsync("出荷済");
+            await Expect(Loc("#btnMain1")).ToBeDisabledAsync();
+            await Expect(Loc("#btnEdit")).ToBeDisabledAsync();
+            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(1));
         }
 
         [Test, Basis("EV-ORD-402"), Basis("ERR-VALIDATION"), Basis("VAL-REQUIRED"), Basis("VAL-NUMERIC"), Basis("DEC-CMN-05")]
@@ -625,7 +627,7 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs();
 
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/05/01", null, freight);
+            await FillShipAsync("2198-05-01", null, freight);
             await ClickAsync("#shipMain1");
 
             await Expect(Loc("#shipFreightError")).ToHaveTextAsync(NonEmpty);
@@ -642,7 +644,7 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs();
 
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/02/28", null, null);
+            await FillShipAsync("2198-02-28", null, null);
             await ClickAsync("#shipMain1");
 
             await Expect(Loc("#shipShippedDateError")).ToHaveTextAsync(MsgBeforeOrder);
@@ -663,7 +665,7 @@ namespace MVC_Sample.E2ETests
             await ClickAsync("#shipMain1");
             await Expect(Loc("#shipShippedDateError")).ToHaveTextAsync(NonEmpty);
             await Expect(Loc("#shipDialog")).ToBeVisibleAsync();
-            await FillShipAsync("2198/05/01", null, null);
+            await FillShipAsync("2198-05-01", null, null);
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -678,14 +680,14 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs(10, 1);
 
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/05/01", null, null);
+            await FillShipAsync("2198-05-01", null, null);
             await ClickAsync("#shipMain1");
 
             await Expect(Loc("#shipMessage")).ToHaveTextAsync(MsgShort + data.ProductNames[e.P2]);
             await Expect(Loc("#shipMessage")).ToHaveClassAsync(Danger);
             await Expect(Loc("#shipDialog")).ToBeVisibleAsync();
             await Expect(Loc("#shipStockList")).ToBeVisibleAsync();
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync("2198/05/01");
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync("2198-05-01");
             await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
             TestData.OrderRow db = TestData.GetOrder(e.O);
             Assert.That(db.ShippedDate, Is.Null);
@@ -709,21 +711,21 @@ namespace MVC_Sample.E2ETests
 
             await OpenFromListAsync(e.K, e.O);
             TestData.BumpOrder(e.O, 99m);
-            await FillShipAsync("2198/05/01", null, "20");
+            await FillShipAsync("2198-05-01", null, "20");
             await ClickAsync("#shipMain1");
 
             await Expect(Loc("#shipMessage")).ToHaveTextAsync(MsgConflict);
             await Expect(Loc("#shipMessage")).ToHaveClassAsync(Danger);
             await Expect(Loc("#shipDialog")).ToBeVisibleAsync();
             await Expect(Loc("#shipFreight")).ToHaveValueAsync(NumRe(99m));
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(Today);
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(TodayIso);
             TestData.OrderRow db = TestData.GetOrder(e.O);
             Assert.That(db.ShippedDate, Is.Null);
             Assert.That(db.Freight, Is.EqualTo(99.00m));
             Assert.That(db.RowVersion, Is.EqualTo(2));
             Assert.That(TestData.GetUnitsInStock(e.P1), Is.EqualTo(10));
 
-            await FillShipAsync("2198/05/01", null, null);
+            await FillShipAsync("2198-05-01", null, null);
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -741,7 +743,7 @@ namespace MVC_Sample.E2ETests
 
             await OpenFromListAsync(e.K, e.O);
             TestData.ShipOrder(e.O);
-            await FillShipAsync("2198/05/01", null, null);
+            await FillShipAsync("2198-05-01", null, null);
             await ClickAsync("#shipMain1");
 
             await Expect(Loc("#shipMessage")).ToHaveTextAsync(MsgConflict);
@@ -764,7 +766,7 @@ namespace MVC_Sample.E2ETests
 
             await OpenFromListAsync(e.K, e.O);
             TestData.DeleteOrder(e.O);
-            await FillShipAsync("2198/05/01", null, null);
+            await FillShipAsync("2198-05-01", null, null);
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -785,7 +787,7 @@ namespace MVC_Sample.E2ETests
 
             await OpenFromListAsync(e.K, e.O);
             await Expect(Loc("#shipMain1")).ToHaveAccessibleNameAsync("出荷情報を更新");
-            await FillShipAsync("2198/04/10", e.S1, "30");
+            await FillShipAsync("2198-04-10", e.S1, "30");
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -813,7 +815,7 @@ namespace MVC_Sample.E2ETests
             await ClickAsync("#btnPageNext");
             await Expect(Loc("#pageInfo")).ToHaveTextAsync("2 / 2 ページ");
             await OpenRowDialogAsync(target);
-            await FillShipAsync("2198/05/01", s0, null);
+            await FillShipAsync("2198-05-01", s0, null);
             await ClickAsync("#shipMain1");
 
             await ExpectDialogClosedAsync();
@@ -964,7 +966,7 @@ namespace MVC_Sample.E2ETests
             Assert.That(TestData.GetUnitsInStock(e.P1), Is.EqualTo(10));
         }
 
-        [Test, Basis("EV-ORD-404"), Basis("EV-ORD-205"), Basis("EV-ORD-201"), Basis("EV-ORD-203")]
+        [Test, Basis("EV-ORD-404"), Basis("EV-ORD-205"), Basis("EV-ORD-201"), Basis("EV-ORD-203"), Basis("DEC-ORD-78")]
         public async Task 閉じる_詳細は再読み込みする()
         {
             Es e = NewEs();
@@ -978,12 +980,8 @@ namespace MVC_Sample.E2ETests
             await Expect(Loc("#status")).Not.ToHaveTextAsync("未出荷");
             await Expect(Loc("#btnEdit")).ToBeDisabledAsync();
             await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);
-
-            await ClickAsync("#btnMain1");   // 削除（確認は承認）
-
-            await Expect(Loc("#orderList")).ToBeVisibleAsync();
-            await ExpectListMessageAsync(e.O, "を削除しました。", Info);
-            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(0));
+            await Expect(Loc("#btnMain1")).ToBeDisabledAsync();   // 出荷済の受注は削除できない（DEC-ORD-78）
+            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(1));
         }
 
         [Test, Basis("EV-ORD-404"), Basis("F-5"), Basis("DEC-ORD-51")]
@@ -1045,7 +1043,7 @@ namespace MVC_Sample.E2ETests
             Es e = NewEs();
 
             await OpenFromListAsync(e.K, e.O);
-            await FillShipAsync("2198/05/01", null, "99");
+            await FillShipAsync("2198-05-01", null, "99");
             await ClickAsync("#btnShipClose");
             await ExpectDialogClosedAsync();
 
@@ -1056,8 +1054,117 @@ namespace MVC_Sample.E2ETests
             Assert.That(TestData.GetUnitsInStock(e.P1), Is.EqualTo(10));
 
             await OpenRowDialogAsync(e.O);
-            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(Today);
+            await Expect(Loc("#shipShippedDate")).ToHaveValueAsync(TodayIso);
             await Expect(Loc("#shipFreight")).ToHaveValueAsync(NumRe(12.5m));
+        }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.2。
+
+        [Test, Basis("規約：日付の入力（cmn-framework.md「画面共通」）")]
+        public async Task 表示_出荷日の入力欄はdate型()
+        {
+            Es e = NewEs();
+
+            await OpenFromListAsync(e.K, e.O);
+
+            await Expect(Loc("#shipShippedDate")).ToHaveAttributeAsync("type", "date");
+        }
+
+        [Test, Basis("規約：日付の入力（未入力として扱わない）"), Basis("VAL-DATE"), Basis("DEC-CMN-05"), Basis("DEC-ORD-56")]
+        public async Task 確定_出荷日の入力途中は形式の違反として扱い確定しない()
+        {
+            Es e = NewEs();
+            await OpenFromListAsync(e.K, e.O);
+            await DateInput.TypePartialAsync(page, "#shipShippedDate");   // 入力途中の値
+            List<string> posts = DateInput.RecordPosts(page);
+
+            await ClickAsync("#shipMain1");
+
+            await Expect(Loc("#shipDialog")).ToBeVisibleAsync();
+            await Expect(Loc("#shipShippedDateError")).ToHaveTextAsync(NonEmpty);
+            await Expect(Loc("#shipShippedDateError")).ToHaveClassAsync(Danger);
+            await Expect(Loc("#shipShipViaError")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#shipFreightError")).ToHaveTextAsync(Empty);
+            await Expect(Loc("#shipMessage")).ToHaveTextAsync(Empty);
+            Assert.That(await DateInput.IsBadInputAsync(page, "#shipShippedDate"), Is.True, "入力途中のまま");
+            await DateInput.ExpectNoPostAsync(page, posts);   // 送信を止めている（必須エラーでの拒否と区別する）
+            TestData.OrderRow db = TestData.GetOrder(e.O);
+            Assert.That(db.ShippedDate, Is.Null);
+            Assert.That(db.RowVersion, Is.EqualTo(1));
+            Assert.That(TestData.GetUnitsInStock(e.P1), Is.EqualTo(10));
+            Assert.That(TestData.GetUnitsInStock(e.P2), Is.EqualTo(5));
+        }
+
+        [Test, Basis("EV-ORD-401"), Basis("DEC-ORD-77"), Basis("DEC-ORD-73"), Basis("DEC-ORD-75"), Basis("DEC-ORD-79")]
+        public async Task 表示_商品マスタに無い明細は内訳に出て強調しない()
+        {
+            string k = data.NewCustomer('K');
+            int s0 = data.NewShipper(mark: 'A');
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int p1 = data.NewProduct(mark: 'A', unitsInStock: 10);
+            int o = data.NewOrder(customerId: k, orderDate: new DateTime(2198, 3, 1), requiredDate: new DateTime(2198, 12, 31),
+                shipVia: s0, freight: 12.50m);
+            data.NewDetail(o, p1, 10.00m, 3, 0f);   // P1・Zb・Za の順に登録する
+            data.NewDetail(o, zb, 10.00m, 2, 0f);
+            data.NewDetail(o, za, 10.00m, 5, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            await OpenFromListAsync(k, o);
+
+            await Expect(StockRows).ToHaveCountAsync(3);
+            await Expect(StockRows.Nth(0).Locator(".ship-product")).ToHaveTextAsync(data.ProductNames[p1]);
+            await Expect(StockRows.Nth(1).Locator(".ship-product")).ToHaveTextAsync("（商品マスタに無い：ID " + za + "）");
+            await Expect(StockRows.Nth(1).Locator(".ship-qty")).ToHaveTextAsync("5");
+            await Expect(StockRows.Nth(1).Locator(".ship-stock")).ToHaveTextAsync(Empty);
+            await Expect(StockRows.Nth(1)).Not.ToHaveClassAsync(RowDanger);
+            await Expect(StockRows.Nth(2).Locator(".ship-product")).ToHaveTextAsync("（商品マスタに無い：ID " + zb + "）");
+            await Expect(StockRows.Nth(2).Locator(".ship-qty")).ToHaveTextAsync("2");
+            await Expect(StockRows.Nth(2).Locator(".ship-stock")).ToHaveTextAsync(Empty);
+            await Expect(StockRows.Nth(2)).Not.ToHaveClassAsync(RowDanger);
+            await Expect(Loc("#shipMain1")).ToBeEnabledAsync();
+            // #shipMessage は期待にしない（出荷ダイアログに警告を出すかは DEC-ORD-79：定めない）
+        }
+
+        [Test, Basis("EV-ORD-403"), Basis("EV-ORD-205"), Basis("EV-ORD-203"), Basis("DEC-ORD-78")]
+        public async Task 取消_詳細から取り消した後の削除は競合しない()
+        {
+            Es e = NewEs(7, 3, Shipped0405, 7.25m);
+
+            await OpenFromDetailAsync(e.O);
+            await Expect(Loc("#btnMain1")).ToBeDisabledAsync();   // 出荷済は削除できない
+            await ClickAsync("#shipMain2");   // 取消（確認は承認）
+            await ExpectDialogClosedAsync();
+            await Expect(Loc("#status")).ToHaveTextAsync("未出荷");
+            await Expect(Loc("#btnMain1")).ToBeEnabledAsync();
+
+            await ClickAsync("#btnMain1");   // 削除（確認は承認）
+
+            await Expect(Loc("#orderList")).ToBeVisibleAsync();
+            await ExpectListMessageAsync(e.O, "を削除しました。", Info);   // ERR-CONFLICT にならない
+            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(0));
+        }
+
+        [Test, Basis("EV-ORD-404"), Basis("EV-ORD-205"), Basis("EV-ORD-201"), Basis("EV-ORD-203")]
+        public async Task 閉じる_詳細の再読み込みの後の削除は競合しない()
+        {
+            Es e = NewEs();
+
+            await OpenFromDetailAsync(e.O);
+            TestData.BumpOrder(e.O, 99.00m);
+            await ClickAsync("#btnShipClose");
+
+            await ExpectDialogClosedAsync();
+            await Expect(Loc("#freight")).ToHaveTextAsync("99.00");   // 再読み込みされた
+            await Expect(Loc("#btnMain1")).ToBeEnabledAsync();
+
+            await ClickAsync("#btnMain1");   // 削除（確認は承認）
+
+            await Expect(Loc("#orderList")).ToBeVisibleAsync();
+            await ExpectListMessageAsync(e.O, "を削除しました。", Info);
+            Assert.That(TestData.CountOrders(e.O), Is.EqualTo(0));
         }
     }
 }

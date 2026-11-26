@@ -92,6 +92,9 @@ namespace WSIFType_sample
 
         /// <summary>明細金額（価格 × 数量を小数第 3 位で四捨五入）</summary>
         public decimal Amount;
+
+        /// <summary>商品マスタに無い商品の明細か（DEC-ORD-73）</summary>
+        public bool MissingProduct;
     }
 
     /// <summary>受注詳細（編集）の明細の 1 行（OrdTfEditInit。EV-ORD-301 手順 3-4）</summary>
@@ -121,6 +124,9 @@ namespace WSIFType_sample
 
         /// <summary>明細の行バージョン</summary>
         public int RowVersion;
+
+        /// <summary>商品マスタに無い商品の明細か（DEC-ORD-76）</summary>
+        public bool MissingProduct;
     }
     /// <summary>出荷ダイアログの在庫引落の内訳の 1 行（OrdTfShipInit。EV-ORD-401 手順 5-4）</summary>
     [Serializable()]

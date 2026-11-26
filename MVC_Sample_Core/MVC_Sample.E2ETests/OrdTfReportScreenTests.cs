@@ -564,5 +564,33 @@ namespace MVC_Sample.E2ETests
             await ExpectPageAsync("2 / 2 ページ", "全 25 件");
             await ExpectListAsync(Range(ids, 5, 1));
         }
+
+        // ================================================================ 受注管理の直し（OrdTfRevise）
+        // 仕様：docs/spec/test3-testfirst-OrdTfRevise-mvc-core-tests.md（NorthwindDbSampleSpec@9be21c0）の 3.2。
+
+        [Test, Basis("EV-ORD-501"), Basis("DEC-ORD-66"), Basis("DEC-ORD-74"), Basis("DEC-ORD-75")]
+        public async Task 帳票_商品マスタに無い明細は商品IDだけを出し注記も警告も出さない()
+        {
+            int za = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int zb = data.NewProduct(mark: 'Z', unitsInStock: 5);
+            int pa = data.NewProduct(mark: 'A');
+            int o = data.NewOrder(orderDate: new DateTime(2198, 3, 1), freight: 5.00m);
+            data.NewDetail(o, pa, 10.00m, 2, 0f);   // A・Zb・Za の順に登録する
+            data.NewDetail(o, zb, 20.00m, 3, 0f);
+            data.NewDetail(o, za, 100.00m, 1, 0f);
+            data.DeleteProduct(za);
+            data.DeleteProduct(zb);
+
+            await OpenReportAsync(o, "delivery");
+
+            await Expect(LineRows).ToHaveCountAsync(3);
+            await Expect(LineCell(0, 0)).ToHaveTextAsync(data.ProductNames[pa]);
+            await Expect(LineCell(1, 0)).ToHaveTextAsync(za.ToString());   // 商品 ID だけ（注記を付けない）
+            await Expect(LineCell(2, 0)).ToHaveTextAsync(zb.ToString());
+            await Expect(Loc("#reportLines")).Not.ToContainTextAsync("商品マスタに無い");
+            await Expect(Loc("#subtotal")).ToHaveTextAsync("180.00");
+            await Expect(Loc("#total")).ToHaveTextAsync("185.00");
+            await Expect(Loc("#messageArea")).ToHaveTextAsync(Empty);   // 警告を出さない
+        }
     }
 }

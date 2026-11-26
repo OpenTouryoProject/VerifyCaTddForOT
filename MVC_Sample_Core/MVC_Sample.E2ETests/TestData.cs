@@ -337,6 +337,13 @@ namespace MVC_Sample.E2ETests
                 P("@d", SqlDbType.DateTime, DateTime.Today), P("@o", SqlDbType.Int, orderId));
         }
 
+        /// <summary>他の利用者が出荷日だけを設定したことを模す（RowVersion は変えない。画面の活性・送る値でなく DB の値を根拠にする DEC-ORD-78 の確かめ用）</summary>
+        public static void SetShippedDate(int orderId, DateTime date)
+        {
+            ExecScalar("UPDATE Orders SET ShippedDate = @d WHERE OrderID = @o",
+                P("@d", SqlDbType.DateTime, date), P("@o", SqlDbType.Int, orderId));
+        }
+
         /// <summary>商品の在庫を DB から読む（NULL は null）</summary>
         public static int? GetUnitsInStock(int productId)
         {
